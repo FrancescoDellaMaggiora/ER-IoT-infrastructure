@@ -42,6 +42,7 @@
  * The IPv6 address of the MQTT broker to connect to.
  * Ignored if MQTT_CLIENT_CONF_WITH_IBM_WATSON is 1
  */
+//  TODO: Use the correct IPv6 address (project_conf.h)
 #define MQTT_CLIENT_CONF_BROKER_IP_ADDR "fd00::1"
 
 /*

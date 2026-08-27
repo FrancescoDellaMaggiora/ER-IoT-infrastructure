@@ -1,4 +1,32 @@
 /*
+
+ER-IOT-INFRASTRUCTURE 
+MQTT client
+
+  This code is derived from contiki's "mqtt_client" example.
+
+  Its aim is to simulate a patient's clinical data and publish it.
+
+  The topic format is: er/patient/<PATIENT_ID>/vitals.
+
+  PATIENT_ID is learnt at build time:
+    make TARGET=<target> PATIENT_ID=<number>
+
+  MQTT CLIENT_ID has this format: patient-<PATIENT_ID> (e.g. patient-1)
+    
+
+  TODOs can be found in the code by pasting them in the search function CTRL+F) inside the specified file:
+    TODO: Use the correct IPv6 address (project_conf.h)
+    TODO: Write a better vitals initialization function (patient.c)
+
+    //  SENSORS CAN'T RECEIVE MESSAGES YET:
+    TODO: If needed, modify pub_handler to handle received MQTT messages or commands (patient.c)
+    TODO: If needed, modify construct_sub_topic() to create the correct topic for our use-case (patient.c)
+
+*/
+
+
+/*
  * Copyright (c) 2014, Texas Instruments Incorporated - http://www.ti.com/
  * Copyright (c) 2017, George Oikonomou - http://www.spd.gr
  * All rights reserved.
@@ -29,6 +57,7 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 /*---------------------------------------------------------------------------*/
+
 #include "contiki.h"
 #include "net/routing/routing.h"
 #include "mqtt.h"
@@ -122,6 +151,114 @@ static const char *broker_ip = MQTT_CLIENT_BROKER_IP_ADDR;
 #define MQTT_CLIENT_WITH_EXTENSIONS 0
 #endif
 /*---------------------------------------------------------------------------*/
+
+
+
+/*---------------------------------------------------------------------------*/
+
+//  ALESSANDRO: I wrote this code
+//  PATIENT_ID (default is 0) used to construct the MQTT CLIENT_ID
+
+#ifndef PATIENT_ID
+#define PATIENT_ID 0
+#endif
+
+/*---------------------------------------------------------------------------*/
+
+
+
+/*---------------------------------------------------------------------------*/
+
+//  ALESSANDRO: I wrote this code
+//  These macros are used, together with PATIENT_ID, to construct topic names.
+//
+//  - PUB_TOPIC_NAME is the topic namespace
+//  - PATIENT_ID identifies the patient
+//  - The last field is the data type. Many types can be defined, for example:
+//
+//  PUB_TOPIC_NAME/PATIENT_ID/PATIENT_VITALS = "er/patient/1/vitals"
+
+#define PUB_TOPIC_NAME "er/patient"
+
+#define PATIENT_VITALS "vitals"
+#define PATIENT_ALERT "alert"
+
+//  These IDs identify the topics
+//  They are used, for example, in the publish(uint8_t topic_id) function to differentiate between topics and to build the correct payload
+#define TOPIC_MSG_VITALS 0
+#define TOPIC_MSG_ALERT 1
+
+/*---------------------------------------------------------------------------*/
+
+
+
+/*---------------------------------------------------------------------------*/
+
+//  ALESSANDRO: I wrote this code
+//
+//  These macros are bitmasks used to define what sensors are attached to the patient (using the "attached_sensors" variable).
+//
+//  TODO: decide what units of measurement to use:
+//  The used units are listed as well as they are needed to build the SenML JSON payload.
+//  "beat/min" and "Cel" are compliant with RFC 8428, whereas "/100" is a secondary unit belonging to the extension in RFC 8798 (not always valid).
+//  Moreover, "mmHg" is not a valid unit of measurement and it may need to be converted to "Pa" (1 mmHg is circa 133.322 Pa)
+
+//      SENSOR_TYPE                          UNIT OF MEASUREMENT (RFC 8428, RFC 8798)
+#define SENSOR_HEART_RATE         (1 << 0)  //  beat/min
+#define SENSOR_SPO2               (1 << 1)  //  /100
+#define SENSOR_TEMPERATURE        (1 << 2)  //  Cel
+#define SENSOR_PRESSURE_SYSTOLIC  (1 << 3)  //  mmHg
+#define SENSOR_PRESSURE_DIASTOLIC (1 << 4)  //  mmHg
+
+//  These macros are bitmasks used to identify current alert parameters (using the  "active_alerts" variable).
+
+#define ALERT_HEART_RATE          (1 << 0)  
+#define ALERT_SPO2                (1 << 1)  
+#define ALERT_TEMPERATURE         (1 << 2) 
+#define ALERT_PRESSURE_SYSTOLIC   (1 << 3)  
+#define ALERT_PRESSURE_DIASTOLIC  (1 << 4)  
+
+//  These macros define thresholds for each measured parameter.  
+
+#define MIN_HEART_RATE          60
+#define MAX_HEART_RATE          100
+
+#define MIN_SPO2                95
+#define MAX_SPO2                100
+
+#define MIN_TEMPERATURE         36.0f
+#define MAX_TEMPERATURE         37.5f
+
+#define MIN_PRESSURE_SYSTOLIC   90
+#define MAX_PRESSURE_SYSTOLIC   140
+
+#define MIN_PRESSURE_DIASTOLIC  60
+#define MAX_PRESSURE_DIASTOLIC  90
+  
+/*---------------------------------------------------------------------------*/
+
+
+
+/*---------------------------------------------------------------------------*/
+//  ALESSANDRO: I wrote this code
+
+/*
+ * Data structure declaration to store patient vitals
+ */
+typedef struct {
+
+  uint16_t heart_rate;
+  uint8_t spo2;
+  float temperature;
+  uint16_t pressure_systolic;
+  uint16_t pressure_diastolic;
+
+} patient_vitals_t;
+
+/*---------------------------------------------------------------------------*/
+
+
+
 /*
  * A timeout used when waiting for something to happen (e.g. to connect or to
  * disconnect)
@@ -173,14 +310,31 @@ static uint8_t state;
 #define NO_NET_LED_DURATION         (NET_CONNECT_PERIODIC >> 1)
 /*---------------------------------------------------------------------------*/
 /* Default configuration values */
+
+//  Device type (used to construct CLIENT_ID)
+//  ALESSANDRO: This is not true anymore, CLIENT_ID is now "patient-<PATIENT_ID>". DEFAULT_TYPE_ID now goes unused but still added to "conf"
 #define DEFAULT_TYPE_ID             "mqtt-client"
+
+//  Event type (used to construct the topic that the client publishes)
 #define DEFAULT_EVENT_TYPE_ID       "status"
+
+//  Subscribe (used to construct the topic to which the client subscribes)
 #define DEFAULT_SUBSCRIBE_CMD_TYPE  "+"
+
+//  Unsecure MQTT default TCP port
 #define DEFAULT_BROKER_PORT         1883
+
+//  Publish every 30 seconds 
 #define DEFAULT_PUBLISH_INTERVAL    (30 * CLOCK_SECOND)
+
+//  ALESSANDRO: I wrote this code
+//  In case of alert publish every second
+#define ALERT_PUBLISH_INTERVAL      (1 * CLOCK_SECOND)
+
 #define DEFAULT_KEEP_ALIVE_TIMER    60
 #define DEFAULT_RSSI_MEAS_INTERVAL  (CLOCK_SECOND * 30)
 /*---------------------------------------------------------------------------*/
+//  No sensor was defined
 #define MQTT_CLIENT_SENSOR_NONE     (void *)0xFFFFFFFF
 /*---------------------------------------------------------------------------*/
 /* Payload length of ICMPv6 echo requests used to measure RSSI with def rt */
@@ -219,6 +373,10 @@ typedef struct mqtt_client_config {
 static char client_id[BUFFER_SIZE];
 static char pub_topic[BUFFER_SIZE];
 static char sub_topic[BUFFER_SIZE];
+
+//  ALESSANDRO: added one buffer per topic
+static char vitals_topic[BUFFER_SIZE];
+static char alert_topic[BUFFER_SIZE];
 /*---------------------------------------------------------------------------*/
 /*
  * The main MQTT buffers.
@@ -263,6 +421,26 @@ struct mqtt_prop_list *publish_props;
 struct mqtt_prop_list *auth_props;
 #endif
 #endif
+
+
+
+/*---------------------------------------------------------------------------*/
+
+//  ALESSANDRO: I wrote this code
+
+//  This variable indicates which sensors are attached to the patient using the SENSOR macros (in this case the heart rate, spo2 and temperature are measured)
+static uint8_t attached_sensors = SENSOR_HEART_RATE | SENSOR_SPO2 | SENSOR_TEMPERATURE;
+
+//  This variabile indicates which alert conditions are currently active using the ALERT macros
+static uint8_t active_alerts = 0;
+
+//  Data structure holding current patient vitals
+static patient_vitals_t current_vitals;
+
+/*---------------------------------------------------------------------------*/
+
+
+
 /*---------------------------------------------------------------------------*/
 PROCESS(mqtt_client_process, "MQTT Client");
 /*---------------------------------------------------------------------------*/
@@ -316,6 +494,8 @@ publish_led_off(void *d)
   leds_off(MQTT_CLIENT_STATUS_LED);
 }
 /*---------------------------------------------------------------------------*/
+//  Broker publish handler
+//  TODO: If needed, modify pub_handler to handle received MQTT messages or commands (patient.c)
 static void
 pub_handler(const char *topic, uint16_t topic_len, const uint8_t *chunk,
             uint16_t chunk_len)
@@ -345,6 +525,7 @@ pub_handler(const char *topic, uint16_t topic_len, const uint8_t *chunk,
   }
 }
 /*---------------------------------------------------------------------------*/
+//  Handles MQTT events (CONNECTED, DISCONNECTED, PUBLISH, ...)
 static void
 mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
 {
@@ -420,15 +601,29 @@ mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
   }
 }
 /*---------------------------------------------------------------------------*/
+//  Published topic construction
 static int
 construct_pub_topic(void)
 {
-  int len = snprintf(pub_topic, BUFFER_SIZE, "iot-2/evt/%s/fmt/json",
-                     conf.event_type_id);
+  //  ALESSANDRO: I modified the original code to publish topics coherent with our use case
+
+  int len;
+
+  //  Fill vitals_topic
+  len = snprintf(vitals_topic, BUFFER_SIZE, "%s/%d/%s", PUB_TOPIC_NAME, PATIENT_ID, PATIENT_VITALS);
 
   /* len < 0: Error. Len >= BUFFER_SIZE: Buffer too small */
   if(len < 0 || len >= BUFFER_SIZE) {
-    LOG_INFO("Pub Topic: %d, Buffer %d\n", len, BUFFER_SIZE);
+    LOG_INFO("Vitals topic is too long (topic_len: %d, max_size: %d)\n", len, BUFFER_SIZE);
+    return 0;
+  }
+
+  //  Fill alert_topic
+  len = snprintf(alert_topic, BUFFER_SIZE, "%s/%d/%s", PUB_TOPIC_NAME, PATIENT_ID, PATIENT_ALERT);
+
+  /* len < 0: Error. Len >= BUFFER_SIZE: Buffer too small */
+  if(len < 0 || len >= BUFFER_SIZE) {
+    LOG_INFO("Alert topic is too long (topic_len: %d, max_size: %d)\n", len, BUFFER_SIZE);
     return 0;
   }
 
@@ -439,6 +634,8 @@ construct_pub_topic(void)
   return 1;
 }
 /*---------------------------------------------------------------------------*/
+//  Subscribed topic construction
+//  TODO: If needed, modify construct_sub_topic() to create the correct topic for our use-case (patient.c)
 static int
 construct_sub_topic(void)
 {
@@ -454,14 +651,13 @@ construct_sub_topic(void)
   return 1;
 }
 /*---------------------------------------------------------------------------*/
+//  Construct the MQTT client ID (the broker uses this ID to differentiate between clients)
 static int
 construct_client_id(void)
 {
-  int len = snprintf(client_id, BUFFER_SIZE, "d:%s:%s:%02x%02x%02x%02x%02x%02x",
-                     conf.org_id, conf.type_id,
-                     linkaddr_node_addr.u8[0], linkaddr_node_addr.u8[1],
-                     linkaddr_node_addr.u8[2], linkaddr_node_addr.u8[5],
-                     linkaddr_node_addr.u8[6], linkaddr_node_addr.u8[7]);
+  //  ALESSANDRO: Original construction was modified and CLIENT_ID is now "patient-<number>"
+  int len = snprintf(client_id, BUFFER_SIZE, "patient-%d",
+                     PATIENT_ID);
 
   /* len < 0: Error. Len >= BUFFER_SIZE: Buffer too small */
   if(len < 0 || len >= BUFFER_SIZE) {
@@ -517,6 +713,22 @@ update_config(void)
   return;
 }
 /*---------------------------------------------------------------------------*/
+
+//  ALESSANDRO: I wrote this code
+//  Initialize patient's vitals to pre-determined values (this is temporary)
+//  TODO: Write a better vitals initialization function (patient.c)
+static void
+patient_vitals_init(void)
+{
+  current_vitals.heart_rate = 70;
+  current_vitals.spo2 = 98;
+  current_vitals.temperature = 36.5f;
+  current_vitals.pressure_systolic = 120;
+  current_vitals.pressure_diastolic = 80;
+
+  active_alerts = 0;
+}
+
 static int
 init_config()
 {
@@ -535,6 +747,10 @@ init_config()
   conf.broker_port = DEFAULT_BROKER_PORT;
   conf.pub_interval = DEFAULT_PUBLISH_INTERVAL;
   conf.def_rt_ping_interval = DEFAULT_RSSI_MEAS_INTERVAL;
+
+  //  ALESSANDRO: I wrote this code
+  /* Populate patient's vitals with default values */
+  patient_vitals_init();
 
   return 1;
 }
@@ -558,86 +774,421 @@ subscribe(void)
     LOG_ERR("Tried to subscribe but command queue was full!\n");
   }
 }
+
+
+
 /*---------------------------------------------------------------------------*/
+//  ALESSANDRO: this support function is use to randomly variate vitals.
+
+static int
+random_variation(void)
+{
+  return (rand() % 5) - 2;
+}
+
+/*---------------------------------------------------------------------------*/
+
+
+
+/*---------------------------------------------------------------------------*/
+//  ALESSANDRO: Functions to build each topic's payload. The payload will depend on mounted sensors, active alerts, ...
+
+static int
+build_payload_vitals(char *buffer, int buffer_size) {
+
+  int len = 0;
+  int remaining = buffer_size;
+
+  //  Used to handle commas
+  bool first = true;
+
+  len = snprintf(buffer, remaining, "[");
+
+  if(len < 0 || len >= remaining) {
+    LOG_ERR("build_payload_vitals(): Buffer too short to begin. Have %d, need %d + \\0\n", remaining, len);
+    return 0;
+  }
+
+  remaining -= len;
+  buffer += len;
+
+  //  Sensor attachment checks
+
+  if(attached_sensors & SENSOR_HEART_RATE) {
+
+    if(!first) {
+      //  A comma has to be added first
+      len = snprintf(buffer, remaining, ",");
+
+      if(len < 0 || len >= remaining) {
+        LOG_ERR("build_payload_vitals(): Buffer too short for heart rate data. Have %d, need %d + \\0\n", remaining, len);
+        return 0;
+      }
+
+      remaining -= len;
+      buffer += len;
+    }
+
+    len = snprintf(buffer, remaining, "{\"n\":\"heart-rate\",\"u\":\"beat/min\",\"v\":%d}", current_vitals.heart_rate);
+
+    if(len < 0 || len >= remaining) {
+      LOG_ERR("build_payload_vitals(): Buffer too short for heart rate data. Have %d, need %d + \\0\n", remaining, len);
+      return 0;
+    }
+
+    remaining -= len;
+    buffer += len;
+    first = false;
+  }
+
+  if(attached_sensors & SENSOR_SPO2) {
+
+    if(!first) {
+      //  A comma has to be added first
+      len = snprintf(buffer, remaining, ",");
+
+      if(len < 0 || len >= remaining) {
+        LOG_ERR("build_payload_vitals(): Buffer too short for spo2 data. Have %d, need %d + \\0\n", remaining, len);
+        return 0;
+      }
+
+      remaining -= len;
+      buffer += len;
+    }
+
+    len = snprintf(buffer, remaining, "{\"n\":\"spo2\",\"u\":\"/100\",\"v\":%d}", current_vitals.spo2);
+
+    if(len < 0 || len >= remaining) {
+      LOG_ERR("build_payload_vitals(): Buffer too short for spo2 data. Have %d, need %d + \\0\n", remaining, len);
+      return 0;
+    }
+
+    remaining -= len;
+    buffer += len;
+    first = false;
+  }
+
+  if(attached_sensors & SENSOR_TEMPERATURE) {
+
+    if(!first) {
+      //  A comma has to be added first
+      len = snprintf(buffer, remaining, ",");
+
+      if(len < 0 || len >= remaining) {
+        LOG_ERR("build_payload_vitals(): Buffer too short for temperature data. Have %d, need %d + \\0\n", remaining, len);
+        return 0;
+      }
+
+      remaining -= len;
+      buffer += len;
+    }
+    
+    len = snprintf(buffer, remaining, "{\"n\":\"temperature\",\"u\":\"Cel\",\"v\":%.1f}", current_vitals.temperature);
+
+    if(len < 0 || len >= remaining) {
+      LOG_ERR("build_payload_vitals(): Buffer too short for temperature data. Have %d, need %d + \\0\n", remaining, len);
+      return 0;
+    }
+
+    remaining -= len;
+    buffer += len;
+    first = false;
+  }
+
+  if(attached_sensors & SENSOR_PRESSURE_SYSTOLIC) {
+
+    if(!first) {
+      //  A comma has to be added first
+      len = snprintf(buffer, remaining, ",");
+
+      if(len < 0 || len >= remaining) {
+        LOG_ERR("build_payload_vitals(): Buffer too short for systolic pressure data. Have %d, need %d + \\0\n", remaining, len);
+        return 0;
+      }
+
+      remaining -= len;
+      buffer += len;
+    }
+    
+    len = snprintf(buffer, remaining, "{\"n\":\"sys-pressure\",\"u\":\"mmHg\",\"v\":%d}", current_vitals.pressure_systolic);
+
+    if(len < 0 || len >= remaining) {
+      LOG_ERR("build_payload_vitals(): Buffer too short for systolic pressure data. Have %d, need %d + \\0\n", remaining, len);
+      return 0;
+    }
+
+    remaining -= len;
+    buffer += len;
+    first = false;
+  }
+
+  if(attached_sensors & SENSOR_PRESSURE_DIASTOLIC) {
+
+    if(!first) {
+      //  A comma has to be added first
+      len = snprintf(buffer, remaining, ",");
+
+      if(len < 0 || len >= remaining) {
+        LOG_ERR("build_payload_vitals(): Buffer too short for diastolic pressure data. Have %d, need %d + \\0\n", remaining, len);
+        return 0;
+      }
+
+      remaining -= len;
+      buffer += len;
+    }
+    
+    len = snprintf(buffer, remaining, "{\"n\":\"dia-pressure\",\"u\":\"mmHg\",\"v\":%d}", current_vitals.pressure_diastolic);
+
+    if(len < 0 || len >= remaining) {
+      LOG_ERR("build_payload_vitals(): Buffer too short for diastolic pressure data. Have %d, need %d + \\0\n", remaining, len);
+      return 0;
+    }
+
+    remaining -= len;
+    buffer += len;
+    first = false;
+  }
+
+  len = snprintf(buffer, remaining, "]");
+
+  if(len < 0 || len >= remaining) {
+    LOG_ERR("build_payload_vitals(): Buffer too short to end. Have %d, need %d + \\0\n", remaining, len);
+    return 0;
+  }
+
+  return 1;
+}
+
+static int 
+build_payload_alert(char *buffer, int buffer_size) {
+
+  int len = 0;
+  int remaining = buffer_size;
+
+  //  Used to handle commas
+  bool first = true;
+
+  len = snprintf(buffer, remaining, "[");
+
+  if(len < 0 || len >= remaining) {
+    LOG_ERR("build_payload_alert(): Buffer too short to begin. Have %d, need %d + \\0\n", remaining, len);
+    return 0;
+  }
+
+  remaining -= len;
+  buffer += len;
+
+  //  Current alert checks
+  if(active_alerts & ALERT_HEART_RATE) {
+
+    if(!first) {
+      //  A comma has to be added first
+      len = snprintf(buffer, remaining, ",");
+
+      if(len < 0 || len >= remaining) {
+        LOG_ERR("build_payload_alert(): Buffer too short for heart rate data. Have %d, need %d + \\0\n", remaining, len);
+        return 0;
+      }
+
+      remaining -= len;
+      buffer += len;
+    }
+
+    len = snprintf(buffer, remaining, "{\"n\":\"heart-rate-alert\",\"u\":\"beat/min\",\"v\":%d}", current_vitals.heart_rate);
+
+    if(len < 0 || len >= remaining) {
+      LOG_ERR("build_payload_alert(): Buffer too short for heart rate data. Have %d, need %d + \\0\n", remaining, len);
+      return 0;
+    }
+
+    remaining -= len;
+    buffer += len;
+    first = false;
+
+  }
+
+  if(active_alerts & ALERT_SPO2) {
+
+    if(!first) {
+      //  A comma has to be added first
+      len = snprintf(buffer, remaining, ",");
+
+      if(len < 0 || len >= remaining) {
+        LOG_ERR("build_payload_alert(): Buffer too short for spo2 data. Have %d, need %d + \\0\n", remaining, len);
+        return 0;
+      }
+
+      remaining -= len;
+      buffer += len;
+    }
+
+    len = snprintf(buffer, remaining, "{\"n\":\"spo2-alert\",\"u\":\"/100\",\"v\":%d}", current_vitals.spo2);
+
+    if(len < 0 || len >= remaining) {
+      LOG_ERR("build_payload_alert(): Buffer too short for spo2 data. Have %d, need %d + \\0\n", remaining, len);
+      return 0;
+    }
+
+    remaining -= len;
+    buffer += len;
+    first = false;
+
+  }
+
+  if(active_alerts & ALERT_TEMPERATURE) {
+
+    if(!first) {
+      //  A comma has to be added first
+      len = snprintf(buffer, remaining, ",");
+
+      if(len < 0 || len >= remaining) {
+        LOG_ERR("build_payload_alert(): Buffer too short for temperature data. Have %d, need %d + \\0\n", remaining, len);
+        return 0;
+      }
+
+      remaining -= len;
+      buffer += len;
+    }
+
+    len = snprintf(buffer, remaining, "{\"n\":\"temperature-alert\",\"u\":\"Cel\",\"v\":%.1f}", current_vitals.temperature);
+
+    if(len < 0 || len >= remaining) {
+      LOG_ERR("build_payload_alert(): Buffer too short for temperature data. Have %d, need %d + \\0\n", remaining, len);
+      return 0;
+    }
+
+    remaining -= len;
+    buffer += len;
+    first = false;
+
+  }
+
+  if(active_alerts & ALERT_PRESSURE_SYSTOLIC) {
+
+    if(!first) {
+      //  A comma has to be added first
+      len = snprintf(buffer, remaining, ",");
+
+      if(len < 0 || len >= remaining) {
+        LOG_ERR("build_payload_alert(): Buffer too short for systolic pressure data. Have %d, need %d + \\0\n", remaining, len);
+        return 0;
+      }
+
+      remaining -= len;
+      buffer += len;
+    }
+
+    len = snprintf(buffer, remaining, "{\"n\":\"sys-pressure-alert\",\"u\":\"mmHg\",\"v\":%d}", current_vitals.pressure_systolic);
+
+    if(len < 0 || len >= remaining) {
+      LOG_ERR("build_payload_alert(): Buffer too short for systolic pressure data. Have %d, need %d + \\0\n", remaining, len);
+      return 0;
+    }
+
+    remaining -= len;
+    buffer += len;
+    first = false;
+
+  }
+
+  if(active_alerts & ALERT_PRESSURE_DIASTOLIC) {
+
+    if(!first) {
+      //  A comma has to be added first
+      len = snprintf(buffer, remaining, ",");
+
+      if(len < 0 || len >= remaining) {
+        LOG_ERR("build_payload_alert(): Buffer too short for diastolic pressure data. Have %d, need %d + \\0\n", remaining, len);
+        return 0;
+      }
+
+      remaining -= len;
+      buffer += len;
+    }
+
+    len = snprintf(buffer, remaining, "{\"n\":\"dia-pressure-alert\",\"u\":\"mmHg\",\"v\":%d}", current_vitals.pressure_diastolic);
+
+    if(len < 0 || len >= remaining) {
+      LOG_ERR("build_payload_alert(): Buffer too short for diastolic pressure data. Have %d, need %d + \\0\n", remaining, len);
+      return 0;
+    }
+
+    remaining -= len;
+    buffer += len;
+    first = false;
+
+  }
+
+  len = snprintf(buffer, remaining, "]");
+
+  if(len < 0 || len >= remaining) {
+    LOG_ERR("build_payload_alert(): Buffer too short to end. Have %d, need %d + \\0\n", remaining, len);
+    return 0;
+  }
+
+  return 1;
+
+}
+
+/*---------------------------------------------------------------------------*/
+
+
+
+/*---------------------------------------------------------------------------*/
+//  ALESSANDRO: Note that mqtt_publish uses MQTT_QOS_LEVEL_0 which sends at most 1 time, no reliability. Modify to make it reliable.
+//  
+//  ALESSANDRO: I modified this function in order to accept the topic to publish as input (before it was publish(void)).
+//              Moreover, it now uses custom functions to produce the correct SenML payload.
 static void
-publish(void)
+publish(uint8_t topic_id)
 {
   /* Publish MQTT topic in IBM quickstart format */
-  int len;
-  int remaining = APP_BUFFER_SIZE;
-  int i;
-  char def_rt_str[64];
+
 #if MQTT_5
   static uint8_t prop_err = 1;
 #endif
 
-  seq_nr_value++;
+  const char *topic;
 
-  buf_ptr = app_buffer;
+  //  Payload construction
 
-  len = snprintf(buf_ptr, remaining,
-                 "{"
-                 "\"d\":{"
-                 "\"Platform\":\""CONTIKI_TARGET_STRING"\","
-#ifdef CONTIKI_BOARD_STRING
-                 "\"Board\":\""CONTIKI_BOARD_STRING"\","
-#endif
-                 "\"Seq #\":%d,"
-                 "\"Uptime (sec)\":%lu",
-                 seq_nr_value, clock_seconds());
+  //  If topic = "vitals"
+  if(topic_id == TOPIC_MSG_VITALS) {
 
-  if(len < 0 || len >= remaining) {
-    LOG_ERR("Buffer too short. Have %d, need %d + \\0\n", remaining,
-            len);
-    return;
-  }
+    topic = vitals_topic;
 
-  remaining -= len;
-  buf_ptr += len;
-
-  /* Put our Default route's string representation in a buffer */
-  memset(def_rt_str, 0, sizeof(def_rt_str));
-  ipaddr_sprintf(def_rt_str, sizeof(def_rt_str), uip_ds6_defrt_choose());
-
-  len = snprintf(buf_ptr, remaining,
-                 ",\"Def Route\":\"%s\",\"RSSI (dBm)\":%d",
-                 def_rt_str, def_rt_rssi);
-
-  if(len < 0 || len >= remaining) {
-    LOG_ERR("Buffer too short. Have %d, need %d + \\0\n", remaining,
-            len);
-    return;
-  }
-  remaining -= len;
-  buf_ptr += len;
-
-  for(i = 0; i < mqtt_client_extension_count; i++) {
-    len = snprintf(buf_ptr, remaining, ",%s",
-                   mqtt_client_extensions[i]->value());
-
-    if(len < 0 || len >= remaining) {
-      LOG_ERR("Buffer too short. Have %d, need %d + \\0\n", remaining,
-              len);
+    if(!build_payload_vitals(app_buffer, APP_BUFFER_SIZE)) {
+      LOG_ERR("Vitals payload construction fail\n");
       return;
     }
-    remaining -= len;
-    buf_ptr += len;
+
   }
 
-  len = snprintf(buf_ptr, remaining, "}}");
+  //  If topic = "alert"
+  else if(topic_id == TOPIC_MSG_ALERT) {
+    
+    topic = alert_topic;
 
-  if(len < 0 || len >= remaining) {
-    LOG_ERR("Buffer too short. Have %d, need %d + \\0\n", remaining,
-            len);
+    if(!build_payload_alert(app_buffer, APP_BUFFER_SIZE)) {
+      LOG_ERR("Alert payload construction fail\n");
+      return;
+    }
+
+  }
+
+  else {
+    LOG_ERR("Unknown MQTT topic id: %u\n", topic_id);
     return;
   }
 
+//  ALESSANDRO: this optimization makes it so a topic gets sent only once and then gets replaced by a number (smaller message). This doesn't work anymore as it is becuase 
+//              "vitals" and "alert" would become the same alias. However, we're not using MQTT_5 so this shouldn't be an issue, all MQTT_5 gets ignored.
 #if MQTT_5
   /* Only send full topic name with the first PUBLISH
    * Afterwards, only use topic alias
    */
   if(seq_nr_value == 1) {
-    mqtt_publish(&conn, NULL, pub_topic, (uint8_t *)app_buffer,
+    mqtt_publish(&conn, NULL, topic, (uint8_t *)app_buffer,
                  strlen(app_buffer), MQTT_QOS_LEVEL_0, MQTT_RETAIN_OFF,
                  PUB_TOPIC_ALIAS, MQTT_TOPIC_ALIAS_OFF,
                  publish_props);
@@ -648,18 +1199,108 @@ publish(void)
                                   MQTT_VHDR_PROP_TOPIC_ALIAS,
                                   PUB_TOPIC_ALIAS);
   } else {
-    mqtt_publish(&conn, NULL, pub_topic, (uint8_t *)app_buffer,
+    mqtt_publish(&conn, NULL, topic, (uint8_t *)app_buffer,
                  strlen(app_buffer), MQTT_QOS_LEVEL_0, MQTT_RETAIN_OFF,
                  PUB_TOPIC_ALIAS, (mqtt_topic_alias_en_t) !prop_err,
                  publish_props);
   }
 #else
-  mqtt_publish(&conn, NULL, pub_topic, (uint8_t *)app_buffer,
+  mqtt_publish(&conn, NULL, topic, (uint8_t *)app_buffer,
                strlen(app_buffer), MQTT_QOS_LEVEL_0, MQTT_RETAIN_OFF);
 #endif
 
   LOG_DBG("Publish!\n");
 }
+
+
+
+/*---------------------------------------------------------------------------*/
+//  ALESSANDRO: This function reads sensor data and implements the MQTT control logic.
+//  Specifically what it does is to raise an alert (by appropiately modifying active_alerts) 
+//  if the corresponding values are out of scale (MIN and MAX macros are used for this)
+
+static void
+patient_measurement_cycle() {
+
+  //  Read vitals
+  if(attached_sensors & SENSOR_HEART_RATE) {
+    
+    current_vitals.heart_rate += random_variation();
+
+    if(current_vitals.heart_rate < MIN_HEART_RATE || current_vitals.heart_rate > MAX_HEART_RATE) {
+      active_alerts |= ALERT_HEART_RATE;
+    }
+    else {
+      active_alerts &= ~ALERT_HEART_RATE;
+    }
+
+  }
+
+  if(attached_sensors & SENSOR_SPO2) {
+
+    current_vitals.spo2 += random_variation();
+
+    if(current_vitals.spo2 < MIN_SPO2 || current_vitals.spo2 > MAX_SPO2) {
+      active_alerts |= ALERT_SPO2;
+    }
+    else {
+      active_alerts &= ~ALERT_SPO2;
+    }
+
+  }
+
+  if(attached_sensors & SENSOR_TEMPERATURE) {
+
+    //  Varies slower than other parameters to be more realistic
+    current_vitals.temperature += random_variation() * 0.1f;
+
+    if(current_vitals.temperature < MIN_TEMPERATURE || current_vitals.temperature > MAX_TEMPERATURE) {
+      active_alerts |= ALERT_TEMPERATURE;
+    }
+    else {
+      active_alerts &= ~ALERT_TEMPERATURE;
+    }
+
+  }
+
+  if(attached_sensors & SENSOR_PRESSURE_SYSTOLIC) {
+
+    current_vitals.pressure_systolic += random_variation();
+
+    if(current_vitals.pressure_systolic < MIN_PRESSURE_SYSTOLIC || current_vitals.pressure_systolic > MAX_PRESSURE_SYSTOLIC) {
+      active_alerts |= ALERT_PRESSURE_SYSTOLIC;
+    }
+    else {
+      active_alerts &= ~ALERT_PRESSURE_SYSTOLIC;
+    }
+
+  }
+
+  if(attached_sensors & SENSOR_PRESSURE_DIASTOLIC) {
+
+    current_vitals.pressure_diastolic += random_variation();
+
+    if(current_vitals.pressure_diastolic < MIN_PRESSURE_DIASTOLIC || current_vitals.pressure_diastolic > MAX_PRESSURE_DIASTOLIC) {
+      active_alerts |= ALERT_PRESSURE_DIASTOLIC;
+    }
+    else {
+      active_alerts &= ~ALERT_PRESSURE_DIASTOLIC;
+    }
+  }
+
+  //  In case of alert publish every second instead of every 30 seconds
+  if(active_alerts)
+      conf.pub_interval = ALERT_PUBLISH_INTERVAL;
+  else
+      conf.pub_interval = DEFAULT_PUBLISH_INTERVAL;
+
+}
+
+
+/*---------------------------------------------------------------------------*/
+
+
+
 /*---------------------------------------------------------------------------*/
 static void
 connect_to_broker(void)
@@ -720,6 +1361,7 @@ ping_parent(void)
   }
 }
 /*---------------------------------------------------------------------------*/
+//  MQTT FSM (STATE_INIT, STATE_REGISTERED, STATE_CONNECTING, STATE_CONNECTED, STATE_PUBLISHING, STATE_DISCONNECTED, STATE_NEWCONFIG, STATE_CONFIG_ERROR, STATE_ERROR)
 static void
 state_machine(void)
 {
@@ -803,13 +1445,36 @@ state_machine(void)
     if(mqtt_ready(&conn) && conn.out_buffer_sent) {
       /* Connected. Publish */
       if(state == STATE_CONNECTED) {
-        subscribe();
+
+        //  TODO: the next line of code will need to be uncommented if sensors will receive messages
+        //subscribe();
+
         state = STATE_PUBLISHING;
       } else {
         leds_on(MQTT_CLIENT_STATUS_LED);
         ctimer_set(&ct, PUBLISH_LED_ON_DURATION, publish_led_off, NULL);
-        LOG_DBG("Publishing\n");
-        publish();
+
+        //  ALESSANDRO: I wrote this code
+        //  "patient_measurement_cycle()" checks sensor values
+        LOG_DBG("Starting measurement cycle\n");
+        patient_measurement_cycle();
+
+        //  The sequence number is associated to a measurement cycle, so vital + alert, e.g.:
+        //  measurement cycle #1 -> vitals #1
+        //  measurement cycle #2 -> vitals #2, alert #2
+        //  As of now, this number never gets transmitted anywhere
+        seq_nr_value++;
+
+        //  Vitals are always published
+        LOG_DBG("Publishing vitals\n");
+        publish(TOPIC_MSG_VITALS);
+
+        //  If alerts are detected they get published
+        if(active_alerts != 0) {
+          LOG_DBG("Alerts detected. Publishing alerts\n");
+          publish(TOPIC_MSG_ALERT);
+        } 
+
       }
       etimer_set(&publish_periodic_timer, conf.pub_interval);
       /* Return here so we don't end up rescheduling the timer */
