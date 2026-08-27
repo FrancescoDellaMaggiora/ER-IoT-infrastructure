@@ -1,5 +1,4 @@
 /*
-
 ER-IOT-INFRASTRUCTURE 
 MQTT client
 
@@ -95,7 +94,7 @@ MQTT client
 #ifdef MQTT_CLIENT_CONF_BROKER_IP_ADDR
 #define MQTT_CLIENT_BROKER_IP_ADDR MQTT_CLIENT_CONF_BROKER_IP_ADDR
 #else
-#define MQTT_CLIENT_BROKER_IP_ADDR "fd00::1"
+#define MQTT_CLIENT_BROKER_IP_ADDR " fd00:1::1"
 #endif
 /*---------------------------------------------------------------------------*/
 /*
@@ -371,7 +370,7 @@ typedef struct mqtt_client_config {
  */
 #define BUFFER_SIZE 64
 static char client_id[BUFFER_SIZE];
-static char pub_topic[BUFFER_SIZE];
+//static char pub_topic[BUFFER_SIZE];
 static char sub_topic[BUFFER_SIZE];
 
 //  ALESSANDRO: added one buffer per topic
@@ -391,7 +390,7 @@ static char app_buffer[APP_BUFFER_SIZE];
 static struct mqtt_message *msg_ptr = 0;
 static struct etimer publish_periodic_timer;
 static struct ctimer ct;
-static char *buf_ptr;
+//static char *buf_ptr;
 static uint16_t seq_nr_value = 0;
 /*---------------------------------------------------------------------------*/
 /* Parent RSSI functionality */
@@ -453,9 +452,8 @@ have_connectivity(void)
   }
   return true;
 }
-/*---------------------------------------------------------------------------*/
-static int
-ipaddr_sprintf(char *buf, uint8_t buf_len, const uip_ipaddr_t *addr)
+/*---------------------------------------------------------------------------
+static int ipaddr_sprintf(char *buf, uint8_t buf_len, const uip_ipaddr_t *addr)
 {
   uint16_t a;
   uint8_t len = 0;
@@ -477,7 +475,7 @@ ipaddr_sprintf(char *buf, uint8_t buf_len, const uip_ipaddr_t *addr)
   }
 
   return len;
-}
+}*/
 /*---------------------------------------------------------------------------*/
 static void
 echo_reply_handler(uip_ipaddr_t *source, uint8_t ttl, uint8_t *data,
@@ -754,11 +752,10 @@ init_config()
 
   return 1;
 }
-/*---------------------------------------------------------------------------*/
-static void
-subscribe(void)
+/*---------------------------------------------------------------------------*
+static void subscribe(void)
 {
-  /* Publish MQTT topic in IBM quickstart format */
+  // Publish MQTT topic in IBM quickstart format 
   mqtt_status_t status;
 
 #if MQTT_5
@@ -776,7 +773,7 @@ subscribe(void)
 }
 
 
-
+*/
 /*---------------------------------------------------------------------------*/
 //  ALESSANDRO: this support function is use to randomly variate vitals.
 
@@ -1148,7 +1145,8 @@ publish(uint8_t topic_id)
   static uint8_t prop_err = 1;
 #endif
 
-  const char *topic;
+  //const char *topic;
+  char *topic;
 
   //  Payload construction
 

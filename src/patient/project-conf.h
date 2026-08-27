@@ -38,12 +38,21 @@
 /* Change to 1 to use with the IBM Watson IoT platform */
 #define MQTT_CLIENT_CONF_WITH_IBM_WATSON 0
 
+/**
+    Porco cane
+ */
+#define IPV6_CONF_LOGGING 1
+#define LOG_CONF_LEVEL_IPV6 LOG_LEVEL_DBG
+#define LOG_CONF_LEVEL_6LOWPAN LOG_LEVEL_DBG
+#define LOG_CONF_LEVEL_TCPIP LOG_LEVEL_DBG
+
+
 /*
  * The IPv6 address of the MQTT broker to connect to.
  * Ignored if MQTT_CLIENT_CONF_WITH_IBM_WATSON is 1
  */
 //  TODO: Use the correct IPv6 address (project_conf.h)
-#define MQTT_CLIENT_CONF_BROKER_IP_ADDR "fd00::1"
+#define MQTT_CLIENT_CONF_BROKER_IP_ADDR "fd00:1::1"
 
 /*
  * The Organisation ID.
