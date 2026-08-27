@@ -1,6 +1,8 @@
 # Created by https://www.toptal.com/developers/gitignore/api/python,c,c++
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,c,c++
 
+build/*
+
 ### C ###
 # Prerequisites
 *.d
