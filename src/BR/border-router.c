@@ -62,12 +62,12 @@
  * instances must forward IPv6 between the tun interfaces).
  * TODO: replace with the real prefixes. */
 static const char *dept_endpoints[DEPT_COUNT] = {
-  "coap://[fd00:1::1]",   /* 0 pediatrico                */
-  "coap://[fd00:2::1]",   /* 1 ostetrico-ginecologico    */
-  "coap://[fd00:3::1]",   /* 2 agitazione psico-motoria  */
-  "coap://[fd00:4::1]",   /* 3 disabilita' complessa     */
-  "coap://[fd00:5::1]",   /* 4 vittime di violenza       */
-  "coap://[fd00:6::1]",   /* 5 malato infettivo          */
+  "coap://[fe80::201:1:1:1]",   /* 0 pediatrico                */
+  "coap://[fe80::202:2:2:1]",   /* 1 ostetrico-ginecologico    */
+  "coap://[fe80::203:3:3:1]",   /* 2 agitazione psico-motoria  */
+  "coap://[fe80::204:4:4:1]",   /* 3 disabilita' complessa     */
+  "coap://[fe80::205:5:5:1]",   /* 4 vittime di violenza       */
+  "coap://[fe80::206:6:6:1]",   /* 5 malato infettivo          */
 };
 
 /*---------------------------------------------------------------------------*/
