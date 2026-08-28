@@ -1,4 +1,4 @@
-CONTIKI_PROJECT = coap-example-server
+CONTIKI_PROJECT = nurse
 all: $(CONTIKI_PROJECT)
 
 # Do not try to build on Sky because of code size limitation
@@ -12,5 +12,8 @@ CONTIKI= ../../../../contiki-ng
 # Include the CoAP implementation
 include $(CONTIKI)/Makefile.dir-variables
 MODULES += $(CONTIKI_NG_APP_LAYER_DIR)/coap
+
+#	%TODO: Rimuovere, serviva perché sul mio fisso non compila contiki sennò (ALE)
+CFLAGS += -Wno-error=discarded-qualifiers
 
 include $(CONTIKI)/Makefile.include
