@@ -18,7 +18,11 @@
 
 #include <stdint.h>
 
-#define DEPT_COUNT 6
+#if CONTIKI_TARGET_COOJA
+    #define DEPT_COUNT 6
+#else
+    #define DEPT_COUNT 2
+#endif
 
 /* 1 if a call from another department is currently shown on the LED */
 int dept_signal_is_active(void);

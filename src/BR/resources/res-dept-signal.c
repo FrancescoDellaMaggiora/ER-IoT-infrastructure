@@ -42,10 +42,12 @@ static int caller = -1;
 static const unsigned char dept_colour[DEPT_COUNT] = {
   LEDS_RED,                  /* 0 pediatrico                */
   LEDS_GREEN,                /* 1 ostetrico-ginecologico    */
-  LEDS_BLUE,                 /* 2 agitazione psico-motoria  */
-  LEDS_RED | LEDS_GREEN,     /* 3 disabilita' complessa     */
-  LEDS_RED | LEDS_BLUE,      /* 4 vittime di violenza       */
-  LEDS_GREEN | LEDS_BLUE,    /* 5 malato infettivo          */
+  #if CONTIKI_TARGET_COOJA
+    LEDS_BLUE,                 /* 2 agitazione psico-motoria  */
+    LEDS_RED | LEDS_GREEN,     /* 3 disabilita' complessa     */
+    LEDS_RED | LEDS_BLUE,      /* 4 vittime di violenza       */
+    LEDS_GREEN | LEDS_BLUE,    /* 5 malato infettivo          */
+  #endif
 };
 
 int dept_signal_is_active(void)

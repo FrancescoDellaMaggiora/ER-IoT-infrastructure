@@ -62,12 +62,17 @@
  * instances must forward IPv6 between the tun interfaces).
  * TODO: replace with the real prefixes. */
 static const char *dept_endpoints[DEPT_COUNT] = {
-  "coap://[fe80::201:1:1:1]",   /* 0 pediatrico                */
-  "coap://[fe80::202:2:2:1]",   /* 1 ostetrico-ginecologico    */
-  "coap://[fe80::203:3:3:1]",   /* 2 agitazione psico-motoria  */
-  "coap://[fe80::204:4:4:1]",   /* 3 disabilita' complessa     */
-  "coap://[fe80::205:5:5:1]",   /* 4 vittime di violenza       */
-  "coap://[fe80::206:6:6:1]",   /* 5 malato infettivo          */
+  #if CONTIKI_TARGET_COOJA
+    "coap://[fe80::201:1:1:1]",   /* 0 pediatrico                */
+    "coap://[fe80::202:2:2:1]",   /* 1 ostetrico-ginecologico    */
+    "coap://[fe80::203:3:3:1]",   /* 2 agitazione psico-motoria  */
+    "coap://[fe80::204:4:4:1]",   /* 3 disabilita' complessa     */
+    "coap://[fe80::205:5:5:1]",   /* 4 vittime di violenza       */
+    "coap://[fe80::206:6:6:1]",   /* 5 malato infettivo          */
+  #else
+    "coap://[fd00:1::f6ce:36cc:e20:721]",   /* 0 pediatrico                */
+    "coap://[fd00:2::f6ce:3639:6320:445f]", /* 1 ostetrico-ginecologico    */
+  #endif
 };
 
 /*---------------------------------------------------------------------------*/
