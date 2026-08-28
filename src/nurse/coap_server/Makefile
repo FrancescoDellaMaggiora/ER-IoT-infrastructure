@@ -13,6 +13,9 @@ CONTIKI= ../../../../contiki-ng
 include $(CONTIKI)/Makefile.dir-variables
 MODULES += $(CONTIKI_NG_APP_LAYER_DIR)/coap
 
+# Project source files
+PROJECT_SOURCEFILES += nurse-patients.c
+
 #	%TODO: Rimuovere, serviva perché sul mio fisso non compila contiki sennò (ALE)
 CFLAGS += -Wno-error=discarded-qualifiers
 
