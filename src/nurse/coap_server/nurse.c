@@ -1,10 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "contiki.h"
 #include "coap-engine.h"
 #include "dev/button-hal.h"
 
-#include "contiki.h"
 #include "common.h"
 #include "nurse-patients.h"
 
@@ -17,8 +18,7 @@ PROCESS_THREAD(er_example_server, ev, data)
 {
   PROCESS_BEGIN();
 
-  PROCESS_PAUSE();
-
+  button_hal_init();
   init_arrays();
 
   //  *---------------------------------------------------------------------------*/
@@ -51,6 +51,8 @@ PROCESS_THREAD(er_example_server, ev, data)
   //  DEBUG END
   //  *---------------------------------------------------------------------------*/
 
+  PROCESS_PAUSE();
+  
   LOG_INFO("Starting nurse CoAP server\n");
 
   coap_activate_resource(&res_assistance, "er/patient/assistance");
@@ -58,6 +60,13 @@ PROCESS_THREAD(er_example_server, ev, data)
   /* Define application-specific events here. */
   while(1) {
     PROCESS_WAIT_EVENT();
+
+    //  If the button is pressed the request assistance is acknowledged
+    if(ev == button_hal_press_event) {
+      LOG_INFO("BUTTON PRESSED\n");
+      assistance_ack();
+    }
+
   }                             /* while (1) */
 
   PROCESS_END();

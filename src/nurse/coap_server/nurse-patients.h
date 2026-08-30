@@ -86,8 +86,11 @@ typedef struct {
     //  Add an assistance request to the queue
     int add_request(int, uint32_t);
 
-    //  Remove an assistance request from the queue
-    int remove_request(int);
+    //  Get the next request (head of the queue)
+    request_data_t get_next_request();
+
+    //  Retreive an assistance request from the queue
+    request_data_t get_request_by_id(int);
 
 //  REQUEST FUNCTIONS END
 /*---------------------------------------------------------------------------*/

@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "coap-engine.h"
+
 #include "common.h"
 #include "../nurse-patients.h"
 
@@ -242,6 +243,7 @@ static void res_post_handler(coap_message_t *request, coap_message_t *response, 
 
         case RESULT_SUCCESS:
             LOG_INFO("Assistance request by patient %i has been reported\n", patient_id);
+            notify_request_led();
             coap_set_status_code(response, CHANGED_2_04);
             return;
         

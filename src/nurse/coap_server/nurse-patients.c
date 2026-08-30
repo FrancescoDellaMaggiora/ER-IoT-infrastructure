@@ -6,7 +6,6 @@
 #include "common.h"
 #include "nurse-patients.h"
 
-
 /*
     Whenever a new patient enters the ER, they get associated to a nurse in the triage.
     Each nurse, then, has an array of associated patients. 
@@ -267,25 +266,58 @@ int add_request(int patient_id, uint32_t timestamp) {
     return RESULT_SUCCESS;
 }
 
-//  Remove an assistance request from the queue (e.g. the nurse presses the button)
-int remove_request(int patient_id) {
+//  Retreive the next request from the head of the queue (e.g. the nurse presses the button)
+request_data_t get_next_request() {
+
+    //  Returned request
+    request_data_t request_return;    
+
+    //  Used to easily change the patient's status to idle         
+    patient_data_t *requesting_patient = NULL;  
+
+    //  Used to determine whether or not the returned request is valid
+    request_return.patient_id = -1;
+
+    //  Queue is empty
+    if(current_requests == 0) 
+        return request_return;
+
+    //  A pointer to the requesting patient is defined (this is used later to easily change its status in the "nurse_patients" array)
+    requesting_patient = get_patient_pointer(request_queue[0].patient_id);
+
+    //  The request will be removed 
+    requesting_patient->status = STATUS_IDLE;
+
+    //  Return the head of the queue
+    request_return = request_queue[0];
+    shift_requests(0);
+
+    return request_return;
+}
+
+//  Retreive an assistance request from the queue given a patient ID 
+request_data_t get_request_by_id(int patient_id) {
+    request_data_t request_return;              //  Returned request
+    patient_data_t *requesting_patient = NULL;  //  Used to easily change the patient's status to idle
     int i;
-    patient_data_t *requesting_patient = NULL;
+
+    //  Used to determine whether or not the returned request is valid
+    request_return.patient_id = -1;
 
     //  Invalid input
     if(patient_id < 0) 
-        return RESULT_INVALID_INPUT;
+        return request_return;
 
     //  A pointer to the requesting patient is defined (this is used later to easily change its status in the "nurse_patients" array)
     requesting_patient = get_patient_pointer(patient_id);
 
     //  Patient not associated
     if(requesting_patient == NULL) 
-        return RESULT_PATIENT_NOT_ASSOCIATED;
+        return request_return;
 
     //  Patient hasn't issued requests
     if(requesting_patient->status == STATUS_IDLE)
-        return RESULT_PATIENT_NOT_PENDING;
+        return request_return;
 
     //  The request will be removed 
     requesting_patient->status = STATUS_IDLE;
@@ -294,15 +326,17 @@ int remove_request(int patient_id) {
     for(i = 0; i < current_requests; i++) {
 
         if(request_queue[i].patient_id == patient_id) {
+            request_return = request_queue[i];
 
             //  Overwrite i-th request by shifting the next ones to the left
             shift_requests(i);
+
             break;
         }
 
     }
 
-    return RESULT_SUCCESS;
+    return request_return;
 }
 
 //  REQUEST FUNCTIONS END
