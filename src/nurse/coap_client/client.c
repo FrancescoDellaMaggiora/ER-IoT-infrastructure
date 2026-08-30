@@ -1,52 +1,16 @@
-/*
- * Copyright (c) 2013, Institute for Pervasive Computing, ETH Zurich
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the Institute nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- *
- * This file is part of the Contiki operating system.
- */
-
-/**
- * \file
- *      Erbium (Er) CoAP client example.
- * \author
- *      Matthias Kovatsch <kovatsch@inf.ethz.ch>
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include "contiki.h"
 #include "contiki-net.h"
 #include "coap-engine.h"
 #include "coap-blocking-api.h"
+
+#include "client.h"
+
 #if PLATFORM_SUPPORTS_BUTTON_HAL
 #include "dev/button-hal.h"
-#else
-#include "dev/button-sensor.h"
 #endif
 
 /* Log configuration */
@@ -54,26 +18,21 @@
 #define LOG_MODULE "App"
 #define LOG_LEVEL  LOG_LEVEL_APP
 
-/* FIXME: This server address is hard-coded for Cooja and link-local for unconnected border router. */
-/* Cooja mote 2: arch/platform/cooja/platform.c repeats the mote ID across the
-   link-layer address, giving 0002.0002.0002.0002 for mote 2. */
-#define SERVER_EP "coap://[fe80::202:2:2:2]"
+//  Server address
+#define SERVER_ADDR "coap://[fe80::201:1:1:1]"
+#define TOGGLE_INTERVAL 2
 
-#define TOGGLE_INTERVAL 10
+PROCESS(er_client, "Assistance request client");
+AUTOSTART_PROCESSES(&er_client);
 
-PROCESS(er_example_client, "Erbium Example Client");
-AUTOSTART_PROCESSES(&er_example_client);
+//static patient_info_t patient_info;
 
+//  The client should send an assistance request with the press of a button
+//  It currently sends two requests with a timer, one every 2 seconds
 static struct etimer et;
 
-/* Example URIs that can be queried. */
-#define NUMBER_OF_URLS 4
-/* leading and ending slashes only for demo purposes, get cropped automatically when setting the Uri-Path */
-char *service_urls[NUMBER_OF_URLS] =
-{ ".well-known/core", "/actuators/toggle", "battery/", "error/in//path" };
-#if PLATFORM_HAS_BUTTON
-static int uri_switch = 0;
-#endif
+//  URI definition
+#define ASSISTANCE_URI "/er/patient/assistance"
 
 /* This function is will be passed to COAP_BLOCKING_REQUEST() to handle responses. */
 void
@@ -90,14 +49,23 @@ client_chunk_handler(coap_message_t *response)
 
   printf("|%.*s", len, (char *)chunk);
 }
-PROCESS_THREAD(er_example_client, ev, data)
+
+PROCESS_THREAD(er_client, ev, data)
 {
-  static coap_endpoint_t server_ep;
+  static coap_endpoint_t server_addr;
+
+  //  How many requests to send
+  //  %TODO: This variabile is used as long as the assistance requests are sent using the timer
+  static int max_requests = 2;
+
+  //  %TODO: For now the id is hardcoded to 1, a patient data structure will have to be added somewhere
+  //static int patient_id = patient_info.patient_id;
+
   PROCESS_BEGIN();
 
   static coap_message_t request[1];      /* This way the packet can be treated as pointer as usual. */
 
-  coap_endpoint_parse(SERVER_EP, strlen(SERVER_EP), &server_ep);
+  coap_endpoint_parse(SERVER_ADDR, strlen(SERVER_ADDR), &server_addr);
 
   etimer_set(&et, TOGGLE_INTERVAL * CLOCK_SECOND);
 
@@ -105,7 +73,7 @@ PROCESS_THREAD(er_example_client, ev, data)
 #if !PLATFORM_SUPPORTS_BUTTON_HAL
   SENSORS_ACTIVATE(button_sensor);
 #endif
-  printf("Press a button to request %s\n", service_urls[uri_switch]);
+  printf("Press a button to send an assistance request\n");
 #endif /* PLATFORM_HAS_BUTTON */
 
   while(1) {
@@ -114,46 +82,38 @@ PROCESS_THREAD(er_example_client, ev, data)
     if(etimer_expired(&et)) {
       printf("--Toggle timer--\n");
 
+      max_requests--;
+
       /* prepare request, TID is set by COAP_BLOCKING_REQUEST() */
       coap_init_message(request, COAP_TYPE_CON, COAP_POST, 0);
-      coap_set_header_uri_path(request, service_urls[1]);
+      coap_set_header_uri_path(request, ASSISTANCE_URI);
+      coap_set_header_content_format(request, APPLICATION_JSON);
 
-      const char msg[] = "Toggle!";
+      //  Build JSON payload
+      char msg[40];
+      strcpy(msg, "{\"PATIENT_ID\":1,\"TIMESTAMP\":10}");
 
-      coap_set_payload(request, (uint8_t *)msg, sizeof(msg) - 1);
+      coap_set_payload(request, (uint8_t *)msg, strlen(msg));
 
-      LOG_INFO_COAP_EP(&server_ep);
+      LOG_INFO_COAP_EP(&server_addr);
       LOG_INFO_("\n");
 
-      COAP_BLOCKING_REQUEST(&server_ep, request, client_chunk_handler);
+      COAP_BLOCKING_REQUEST(&server_addr, request, client_chunk_handler);
 
       printf("\n--Done--\n");
 
-      etimer_reset(&et);
+      if(max_requests > 0)
+        etimer_reset(&et);
 
 #if PLATFORM_HAS_BUTTON
 #if PLATFORM_SUPPORTS_BUTTON_HAL
     } else if(ev == button_hal_release_event) {
-#else
-    } else if(ev == sensors_event && data == &button_sensor) {
+      
 #endif
 
-      /* send a request to notify the end of the process */
+      //  %TODO: Modify this part to handle buttons
 
-      coap_init_message(request, COAP_TYPE_CON, COAP_GET, 0);
-      coap_set_header_uri_path(request, service_urls[uri_switch]);
-
-      printf("--Requesting %s--\n", service_urls[uri_switch]);
-
-      LOG_INFO_COAP_EP(&server_ep);
-      LOG_INFO_("\n");
-
-      COAP_BLOCKING_REQUEST(&server_ep, request,
-                            client_chunk_handler);
-
-      printf("\n--Done--\n");
-
-      uri_switch = (uri_switch + 1) % NUMBER_OF_URLS;
+      
 #endif /* PLATFORM_HAS_BUTTON */
     }
   }

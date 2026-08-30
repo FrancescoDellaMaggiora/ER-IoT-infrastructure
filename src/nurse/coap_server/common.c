@@ -18,7 +18,7 @@
 //  %TODO: Adjust this function based on how we want the leds to work
 void notify_request_led() {
     #ifdef PLATFORM_HAS_LEDS
-        leds_on(LEDS_TO_NUM_MASK(LEDS_GREEN));
+        leds_on(LEDS_GREEN);
     #endif
 }
 
@@ -37,6 +37,6 @@ void assistance_ack() {
 
     //  %TODO: Adjust based on how we want the leds to work
     #ifdef PLATFORM_HAS_LEDS
-        leds_off(LEDS_TO_NUM_MASK(LEDS_GREEN));
+        leds_off(LEDS_GREEN);
     #endif
 }
