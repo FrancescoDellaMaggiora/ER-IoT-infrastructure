@@ -4,7 +4,10 @@
 
 #include "contiki.h"
 #include "coap-engine.h"
-#include "dev/button-hal.h"
+
+#if PLATFORM_SUPPORTS_BUTTON_HAL
+  #include "dev/button-hal.h"
+#endif
 
 #include "common.h"
 #include "nurse-patients.h"
@@ -39,9 +42,10 @@ PROCESS_THREAD(er_example_server, ev, data)
     */
     #if DBG_ADD_PATIENT > 0
 
+      int patients_to_add = DBG_ADD_PATIENT > MAX_PATIENT_NUMBER ? MAX_PATIENT_NUMBER : DBG_ADD_PATIENT;
       int i;
 
-      for(i = 1; i <= DBG_ADD_PATIENT; i++)
+      for(i = 1; i <= patients_to_add; i++)
         add_patient(i, CODE_BLUE, 1);
 
       print_patients();
@@ -61,11 +65,15 @@ PROCESS_THREAD(er_example_server, ev, data)
   while(1) {
     PROCESS_WAIT_EVENT();
 
-    //  If the button is pressed the request assistance is acknowledged
-    if(ev == button_hal_press_event) {
-      LOG_INFO("BUTTON PRESSED\n");
-      assistance_ack();
-    }
+    #if PLATFORM_SUPPORTS_BUTTON_HAL
+
+      //  If the button is pressed the request assistance is acknowledged
+      if(ev == button_hal_press_event) {
+        LOG_INFO("BUTTON PRESSED\n");
+        assistance_ack();
+      }
+      
+    #endif
 
   }                             /* while (1) */
 

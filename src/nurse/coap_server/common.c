@@ -3,10 +3,12 @@
 #include <string.h>
 
 #include "contiki.h"
-#include "dev/button-hal.h"
-
 #include "common.h"
 #include "nurse-patients.h"
+
+#if PLATFORM_SUPPORTS_BUTTON_HAL
+  #include "dev/button-hal.h"
+#endif
 
 #ifdef PLATFORM_HAS_LEDS
     #include "dev/leds.h"
