@@ -1,13 +1,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+
 #include "coap-engine.h"
-
-/* Log configuration */
-#include "sys/log.h"
-#define LOG_MODULE "App"
-#define LOG_LEVEL LOG_LEVEL_APP
-
+#include "common.h"
 #include "../nurse-patients.h"
 
 //  Patients send assistance requests using the POST method. Their PATIENT_ID will be in the payload.
@@ -212,9 +208,23 @@ static void res_post_handler(coap_message_t *request, coap_message_t *response, 
 
     LOG_INFO("Assistance request by patient: %i\n", patient_id);
 
-    int status = add_request(patient_id, timestamp);
+    int add_outcome = add_request(patient_id, timestamp);
+    
+    //  *---------------------------------------------------------------------------*/
+    //  DEBUG
 
-    switch (status) {
+        #if NURSE_DBG == 1
+
+            print_patients();
+            print_requests();
+
+        #endif
+
+    //  DEBUG END
+    //  *---------------------------------------------------------------------------*/
+
+    switch (add_outcome) {
+
         case RESULT_INVALID_INPUT:
             LOG_ERR("Bad assistance request patient %i: invalid input data\n", patient_id);
             coap_set_status_code(response, BAD_REQUEST_4_00);
@@ -240,4 +250,5 @@ static void res_post_handler(coap_message_t *request, coap_message_t *response, 
             coap_set_status_code(response, BAD_REQUEST_4_00);
             return;
     }
+
 }

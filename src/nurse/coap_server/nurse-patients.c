@@ -1,3 +1,12 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "contiki.h"
+#include "common.h"
+#include "nurse-patients.h"
+
+
 /*
     Whenever a new patient enters the ER, they get associated to a nurse in the triage.
     Each nurse, then, has an array of associated patients. 
@@ -17,13 +26,6 @@
 
     This file and its header handle these data structures.
 */
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include "contiki.h"
-#include "nurse-patients.h"
 
 //  This array keeps track of what patients are associated to this nurse.
 //  For this array, the field "timestamp" indicates the time at which the patient was associated to the nurse.
@@ -47,6 +49,11 @@ static request_data_t request_queue[MAX_PATIENT_NUMBER];
 //  Keep track of the current request number
 static uint8_t current_requests;
 
+
+
+/*---------------------------------------------------------------------------*/
+//  UTILITY FUNCTIONS
+
 //  Initialize arrays
 void init_arrays(void)
 {
@@ -62,7 +69,7 @@ void init_arrays(void)
     current_requests = 0;
 }
 
-//  Shifts requests after removed_index one position to the left
+//  Shifts requests with index greater that "removed_index" one position to the left (overwriting the one in position "removed_index")
 void shift_requests(int removed_index) {
     int i;
 
@@ -73,6 +80,11 @@ void shift_requests(int removed_index) {
     current_requests--;
     memset(&request_queue[current_requests], 0, sizeof(request_data_t));
 }
+
+//  UTILITY FUNCTIONS END
+/*---------------------------------------------------------------------------*/
+
+
 
 /*---------------------------------------------------------------------------*/
 //  PATIENT ASSOCIATION FUNCTIONS
@@ -294,4 +306,30 @@ int remove_request(int patient_id) {
 }
 
 //  REQUEST FUNCTIONS END
+/*---------------------------------------------------------------------------*/
+
+
+
+/*---------------------------------------------------------------------------*/
+//  DEBUG FUNCTIONS
+
+//  Print every associated patient information
+void print_patients() {
+    LOG_DBG("PATIENT LIST:\n");
+    int i;
+    for(i = 0; i < MAX_PATIENT_NUMBER; i++) {
+        LOG_DBG("Slot: %i\tID: %li\tCode: %i\tStatus: %i\tTimestamp: %i\n", i, nurse_patients[i].patient_id, nurse_patients[i].triage_code, nurse_patients[i].status, nurse_patients[i].timestamp);
+    }
+}
+
+//  Print all requests
+void print_requests() {
+    LOG_DBG("REQUEST LIST (%i active request(s)):\n", current_requests);
+    int i;
+    for(i = 0; i < current_requests; i++) {
+        LOG_DBG("Slot: %i\tID: %li\tCode: %i\tTimestamp: %i\n", i, request_queue[i].patient_id, request_queue[i].triage_code, request_queue[i].timestamp);
+    }
+}
+
+//  DEBUG FUNCTIONS END
 /*---------------------------------------------------------------------------*/

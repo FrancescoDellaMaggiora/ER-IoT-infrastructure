@@ -16,7 +16,16 @@ MODULES += $(CONTIKI_NG_APP_LAYER_DIR)/coap
 # Project source files
 PROJECT_SOURCEFILES += nurse-patients.c
 
-#	%TODO: Rimuovere, serviva perché sul mio fisso non compila contiki sennò (ALE)
+# If set to 1 enables debug (mostly used to print stuff)
+NURSE_DBG ?= 0
+CFLAGS += -DNURSE_DBG=$(NURSE_DBG)
+
+# Associate this number of patients to the nurse with incremental IDs
+# 	make TARGET=<target> ADD_PATIENT=<number of patients to add>
+DBG_ADD_PATIENT ?= 0
+CFLAGS += -DDBG_ADD_PATIENT=$(DBG_ADD_PATIENT)
+
+#	%TODO: This can be removed if needed. It's used to not treat warnings as errors, otherwise Contiki doesn't compile on my PC (ALE)
 CFLAGS += -Wno-error=discarded-qualifiers
 
 include $(CONTIKI)/Makefile.include

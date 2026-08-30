@@ -44,26 +44,64 @@ typedef struct {
     uint32_t timestamp;
 } request_data_t;
 
-//  Initialize arrays
-void init_arrays(void);
 
-//  Shift requests to the left
-void shift_requests(int);
 
-//  Check whethere a given patient is associated with this nurse (i.e. check if its ID is currently in a non-free slot of the array)
-int patient_associated(int);
+/*---------------------------------------------------------------------------*/
+//  UTILITY FUNCTIONS
 
-//  Add a patient with a valid ID only if they're not already associated
-int add_patient(int, int, uint32_t);
+    //  Initialize arrays
+    void init_arrays(void);
 
-//  Remove a patient (if not already absent)
-int remove_patient(int);
+    //  Shift requests to the left (overwriting one)
+    void shift_requests(int);
+    
+//  UTILITY FUNCTIONS END
+/*---------------------------------------------------------------------------*/
 
-//  Return a pointer to a specific patient
-patient_data_t* get_patient_pointer(int);
 
-//  Add an assistance request to the queue
-int add_request(int, uint32_t);
 
-//  Remove an assistance request from the queue
-int remove_request(int);
+/*---------------------------------------------------------------------------*/
+//  PATIENT ASSOCIATION FUNCTIONS
+
+    //  Check whethere a given patient is associated with this nurse (i.e. check if its ID is currently in a non-free slot of the array)
+    int patient_associated(int);
+
+    //  Add a patient with a valid ID only if they're not already associated
+    int add_patient(int, int, uint32_t);
+
+    //  Remove a patient (if not already absent)
+    int remove_patient(int);
+
+    //  Return a pointer to a specific patient
+    patient_data_t* get_patient_pointer(int);
+
+//  PATIENT ASSOCIATION FUNCTIONS END
+/*---------------------------------------------------------------------------*/
+
+
+
+/*---------------------------------------------------------------------------*/
+//  REQUEST FUNCTIONS
+
+    //  Add an assistance request to the queue
+    int add_request(int, uint32_t);
+
+    //  Remove an assistance request from the queue
+    int remove_request(int);
+
+//  REQUEST FUNCTIONS END
+/*---------------------------------------------------------------------------*/
+
+
+
+/*---------------------------------------------------------------------------*/
+//  DEBUG FUNCTIONS
+
+    //  Print all patients
+    void print_patients(void);
+
+    //  Print all requests
+    void print_requests(void);
+
+//  DEBUG FUNCTIONS END
+/*---------------------------------------------------------------------------*/
