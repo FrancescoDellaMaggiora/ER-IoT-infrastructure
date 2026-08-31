@@ -46,7 +46,7 @@ PROCESS_THREAD(er_example_server, ev, data)
       int i;
 
       for(i = 1; i <= patients_to_add; i++)
-        add_patient(i, CODE_BLUE, 1);
+        add_patient(i, i, 1);
 
       print_patients();
 

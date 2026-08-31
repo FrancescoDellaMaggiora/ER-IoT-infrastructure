@@ -8,6 +8,7 @@
 #include "coap-blocking-api.h"
 
 #include "client.h"
+#include "sys/node-id.h"
 
 #if PLATFORM_SUPPORTS_BUTTON_HAL
 #include "dev/button-hal.h"
@@ -22,14 +23,16 @@
 #define SERVER_ADDR "coap://[fe80::201:1:1:1]"
 #define TOGGLE_INTERVAL 2
 
+void init_patient(patient_info_t *patient) {
+  patient->patient_id = node_id;
+  strcpy(patient->name, "Mario");
+  strcpy(patient->surname, "Rossi");
+  patient->triage_code = CODE_BLUE;
+  patient->timestamp = 10;
+}
+
 PROCESS(er_client, "Assistance request client");
 AUTOSTART_PROCESSES(&er_client);
-
-//static patient_info_t patient_info;
-
-//  The client should send an assistance request with the press of a button
-//  It currently sends two requests with a timer, one every 2 seconds
-static struct etimer et;
 
 //  URI definition
 #define ASSISTANCE_URI "/er/patient/assistance"
@@ -53,21 +56,16 @@ client_chunk_handler(coap_message_t *response)
 PROCESS_THREAD(er_client, ev, data)
 {
   static coap_endpoint_t server_addr;
-
-  //  How many requests to send
-  //  %TODO: This variabile is used as long as the assistance requests are sent using the timer
-  static int max_requests = 2;
-
-  //  %TODO: For now the id is hardcoded to 1, a patient data structure will have to be added somewhere
-  //static int patient_id = patient_info.patient_id;
+  static patient_info_t patient_info;
 
   PROCESS_BEGIN();
 
   static coap_message_t request[1];      /* This way the packet can be treated as pointer as usual. */
 
-  coap_endpoint_parse(SERVER_ADDR, strlen(SERVER_ADDR), &server_addr);
 
-  etimer_set(&et, TOGGLE_INTERVAL * CLOCK_SECOND);
+  init_patient(&patient_info);
+
+  coap_endpoint_parse(SERVER_ADDR, strlen(SERVER_ADDR), &server_addr);
 
 #if PLATFORM_HAS_BUTTON
 #if !PLATFORM_SUPPORTS_BUTTON_HAL
@@ -79,10 +77,13 @@ PROCESS_THREAD(er_client, ev, data)
   while(1) {
     PROCESS_YIELD();
 
-    if(etimer_expired(&et)) {
-      printf("--Toggle timer--\n");
+#if PLATFORM_HAS_BUTTON
+#if PLATFORM_SUPPORTS_BUTTON_HAL
+    if(ev == button_hal_release_event) {
+      
+#endif
 
-      max_requests--;
+      printf("--Button pressed--\n");
 
       /* prepare request, TID is set by COAP_BLOCKING_REQUEST() */
       coap_init_message(request, COAP_TYPE_CON, COAP_POST, 0);
@@ -91,7 +92,7 @@ PROCESS_THREAD(er_client, ev, data)
 
       //  Build JSON payload
       char msg[40];
-      strcpy(msg, "{\"PATIENT_ID\":1,\"TIMESTAMP\":10}");
+      snprintf(msg, sizeof(msg), "{\"PATIENT_ID\":%li,\"TIMESTAMP\":%i}", patient_info.patient_id, node_id);
 
       coap_set_payload(request, (uint8_t *)msg, strlen(msg));
 
@@ -102,20 +103,10 @@ PROCESS_THREAD(er_client, ev, data)
 
       printf("\n--Done--\n");
 
-      if(max_requests > 0)
-        etimer_reset(&et);
-
-#if PLATFORM_HAS_BUTTON
-#if PLATFORM_SUPPORTS_BUTTON_HAL
-    } else if(ev == button_hal_release_event) {
-      
-#endif
-
-      //  %TODO: Modify this part to handle buttons
-
-      
-#endif /* PLATFORM_HAS_BUTTON */
     }
+
+#endif /* PLATFORM_HAS_BUTTON */
+    
   }
 
   PROCESS_END();

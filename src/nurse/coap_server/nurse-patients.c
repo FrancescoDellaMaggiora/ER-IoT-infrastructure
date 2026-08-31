@@ -205,7 +205,7 @@ patient_data_t* get_patient_pointer(int patient_id) {
 //  Requests can be added to the queue based on their priority and removed from the queue.
 
 //  Add an assistance request to the queue
-int add_request(int patient_id, uint32_t timestamp) {
+int add_request(int patient_id, uint32_t request_timestamp) {
     int i;
     patient_data_t *requesting_patient = NULL;
 
@@ -228,7 +228,7 @@ int add_request(int patient_id, uint32_t timestamp) {
     request_data_t new_request;
     new_request.patient_id = patient_id;
     new_request.triage_code = requesting_patient->triage_code;  //  Assistance requests cannot update the triage code
-    new_request.timestamp = timestamp;
+    new_request.timestamp = request_timestamp;
 
     //  The request will be successfully added (there's enough place for a request per patient)
     requesting_patient->status = STATUS_PENDING;
@@ -241,7 +241,7 @@ int add_request(int patient_id, uint32_t timestamp) {
             continue;
         
         //  The i-th request has the same priority but was issued first
-        else if(request_queue[i].triage_code == new_request.triage_code && request_queue[i].timestamp < timestamp)
+        else if(request_queue[i].triage_code == new_request.triage_code && request_queue[i].timestamp < request_timestamp) 
             continue;
 
         //  The new request has to be placed in an occupied slot after the others get shifted right by one position
