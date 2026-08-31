@@ -39,6 +39,8 @@
 #ifndef PROJECT_CONF_H_
 #define PROJECT_CONF_H_
 
+#define REST_MAX_CHUNK_SIZE 256
+
 #define LOG_LEVEL_APP LOG_LEVEL_DBG
 
 #endif /* PROJECT_CONF_H_ */

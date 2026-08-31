@@ -14,8 +14,9 @@ include $(CONTIKI)/Makefile.dir-variables
 MODULES += $(CONTIKI_NG_APP_LAYER_DIR)/coap
 
 # Project source files
-PROJECT_SOURCEFILES += nurse-patients.c
 PROJECT_SOURCEFILES += common.c
+PROJECT_SOURCEFILES += nurse-patients.c
+PROJECT_SOURCEFILES += JSON-parser.c
 
 # If set to 1 enables debug (mostly used to print stuff)
 NURSE_DBG ?= 0

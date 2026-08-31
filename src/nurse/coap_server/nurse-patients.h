@@ -4,6 +4,12 @@
 //  Max number of patients that can be associated to a nurse
 #define MAX_PATIENT_NUMBER 10
 
+//  Social security number's size (9 characters + '\0')
+#define SSN_SIZE 10
+
+//  Patient name and surname's buffer size
+#define NAME_SIZE 30
+
 //  Defition of function return values 
 #define RESULT_SUCCESS                       1
 #define RESULT_INVALID_INPUT                 0
@@ -32,16 +38,23 @@ typedef enum {
 //  Patient data structure
 typedef struct {
     long patient_id;
+
+    char SSN[SSN_SIZE];
+    char name[NAME_SIZE];
+    char surname[NAME_SIZE];
+
     triage_code_t triage_code;
+    uint32_t reception_timestamp;
+    uint32_t last_visit_timestamp;
+
     patient_status_t status;
-    uint32_t timestamp;
 } patient_data_t;
 
 //  Request data structure (same as the previous one except for the removed status field)
 typedef struct {
     long patient_id;
     triage_code_t triage_code;
-    uint32_t timestamp;
+    uint32_t assistance_timestamp;
 } request_data_t;
 
 
@@ -54,6 +67,9 @@ typedef struct {
 
     //  Shift requests to the left (overwriting one)
     void shift_requests(int);
+
+    //  Return a pointer to a specific patient
+    patient_data_t* get_patient_pointer(int);
     
 //  UTILITY FUNCTIONS END
 /*---------------------------------------------------------------------------*/
@@ -67,13 +83,10 @@ typedef struct {
     int patient_associated(int);
 
     //  Add a patient with a valid ID only if they're not already associated
-    int add_patient(int, int, uint32_t);
+    int add_patient(int, char*, char*, char*, int, uint32_t, uint32_t);
 
     //  Remove a patient (if not already absent)
     int remove_patient(int);
-
-    //  Return a pointer to a specific patient
-    patient_data_t* get_patient_pointer(int);
 
 //  PATIENT ASSOCIATION FUNCTIONS END
 /*---------------------------------------------------------------------------*/

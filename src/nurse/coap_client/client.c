@@ -20,15 +20,17 @@
 #define LOG_LEVEL  LOG_LEVEL_APP
 
 //  Server address
+//  %TODO: Use the correct address
 #define SERVER_ADDR "coap://[fe80::201:1:1:1]"
 #define TOGGLE_INTERVAL 2
 
-void init_patient(patient_info_t *patient) {
+//  %TODO: This is hard-coded
+void init_patient(patient_data_t *patient) {
   patient->patient_id = node_id;
   strcpy(patient->name, "Mario");
   strcpy(patient->surname, "Rossi");
   patient->triage_code = CODE_BLUE;
-  patient->timestamp = 10;
+  patient->timestamp = 1;
 }
 
 PROCESS(er_client, "Assistance request client");
@@ -42,21 +44,25 @@ void
 client_chunk_handler(coap_message_t *response)
 {
   const uint8_t *chunk;
+  uint8_t status;
+  int len;
 
   if(response == NULL) {
     puts("Request timed out");
     return;
   }
 
-  int len = coap_get_payload(response, &chunk);
+  status = response->code;
+  printf("Response: %u.%02u\n", status / 32, status % 32);
 
+  len = coap_get_payload(response, &chunk);
   printf("|%.*s", len, (char *)chunk);
 }
 
 PROCESS_THREAD(er_client, ev, data)
 {
   static coap_endpoint_t server_addr;
-  static patient_info_t patient_info;
+  static patient_data_t patient_info;
 
   PROCESS_BEGIN();
 

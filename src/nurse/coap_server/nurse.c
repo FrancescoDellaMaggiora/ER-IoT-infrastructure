@@ -12,6 +12,7 @@
 #include "common.h"
 #include "nurse-patients.h"
 
+extern coap_resource_t res_association;
 extern coap_resource_t res_assistance;
 
 PROCESS(er_example_server, "Nurse CoAP server");
@@ -45,8 +46,9 @@ PROCESS_THREAD(er_example_server, ev, data)
       int patients_to_add = DBG_ADD_PATIENT > MAX_PATIENT_NUMBER ? MAX_PATIENT_NUMBER : DBG_ADD_PATIENT;
       int i;
 
+      //  %TODO: This is hard-coded (obviously, this is for debugging purpouses)
       for(i = 1; i <= patients_to_add; i++)
-        add_patient(i, i, 1);
+        add_patient(i, CODE_BLUE, 1);
 
       print_patients();
 
@@ -59,6 +61,12 @@ PROCESS_THREAD(er_example_server, ev, data)
   
   LOG_INFO("Starting nurse CoAP server\n");
 
+  //  Patient association resource
+  //  CLOUD -> NURSE
+  coap_activate_resource(&res_association, "er/patient/association");
+
+  //  Patients assistance resource
+  //  PATIENT -> NURSE
   coap_activate_resource(&res_assistance, "er/patient/assistance");
 
   /* Define application-specific events here. */

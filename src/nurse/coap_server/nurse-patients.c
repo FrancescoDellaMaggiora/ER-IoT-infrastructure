@@ -16,9 +16,13 @@
 
     The association array is kept updated by the cloud (which communicates with nurses via CoAP messages) and holds information about:
         - patient id
+        - SSN
+        - name
+        - surname
         - triage code
+        - reception_timestamp (time at which the patient was associated with the nurse)
+        - last_visit_timestamp 
         - status (either idle or with a pending assistance request)
-        - timestamp (time at which the patient was associated with the nurse)
 
     When a patient sends a new request all that's needed is the patient id and the request timestamp (used to determine its priority), the triage code is extracted from the association array.
     So, assistance request cannot bring new information about the triage code, it is already knonw and computed by others.
@@ -80,6 +84,23 @@ void shift_requests(int removed_index) {
     memset(&request_queue[current_requests], 0, sizeof(request_data_t));
 }
 
+//  Return a pointer to a specific patient
+patient_data_t* get_patient_pointer(int patient_id) {
+    int i;
+
+    //  Invalid ID
+    if(patient_id < 0) 
+        return NULL;
+
+    for(i = 0; i < MAX_PATIENT_NUMBER; i++) {
+        if (nurse_patients[i].status != STATUS_FREE_SLOT && nurse_patients[i].patient_id == patient_id) 
+            return &nurse_patients[i];
+    }
+
+    //  Patient not associated
+    return NULL;
+}
+
 //  UTILITY FUNCTIONS END
 /*---------------------------------------------------------------------------*/
 
@@ -111,7 +132,7 @@ int patient_associated(int patient_id) {
 }
 
 //  Add a patient with a valid ID only if they're not already associated
-int add_patient(int patient_id, int triage_code, uint32_t timestamp) {
+int add_patient(int patient_id, char *SSN, char *name, char *surname, int triage_code, uint32_t reception_timestamp, uint32_t last_visit_timestamp) {
     int i;
 
     //  Invalid input
@@ -127,9 +148,13 @@ int add_patient(int patient_id, int triage_code, uint32_t timestamp) {
         if (nurse_patients[i].status == STATUS_FREE_SLOT) {
 
             nurse_patients[i].patient_id = patient_id;
+            strcpy(nurse_patients[i].SSN, SSN);
+            strcpy(nurse_patients[i].name, name);
+            strcpy(nurse_patients[i].surname, surname);
             nurse_patients[i].triage_code = triage_code;
             nurse_patients[i].status = STATUS_IDLE;
-            nurse_patients[i].timestamp = timestamp;
+            nurse_patients[i].reception_timestamp = reception_timestamp;
+            nurse_patients[i].last_visit_timestamp = last_visit_timestamp;
 
             return RESULT_SUCCESS;
         }
@@ -176,23 +201,6 @@ int remove_patient(int patient_id) {
     return RESULT_SUCCESS;
 }
 
-//  Return a pointer to a specific patient
-patient_data_t* get_patient_pointer(int patient_id) {
-    int i;
-
-    //  Invalid ID
-    if(patient_id < 0) 
-        return NULL;
-
-    for(i = 0; i < MAX_PATIENT_NUMBER; i++) {
-        if (nurse_patients[i].status != STATUS_FREE_SLOT && nurse_patients[i].patient_id == patient_id) 
-            return &nurse_patients[i];
-    }
-
-    //  Patient not associated
-    return NULL;
-}
-
 //  PATIENT ASSOCIATION FUNCTIONS END
 /*---------------------------------------------------------------------------*/
 
@@ -205,7 +213,7 @@ patient_data_t* get_patient_pointer(int patient_id) {
 //  Requests can be added to the queue based on their priority and removed from the queue.
 
 //  Add an assistance request to the queue
-int add_request(int patient_id, uint32_t request_timestamp) {
+int add_request(int patient_id, uint32_t assistance_timestamp) {
     int i;
     patient_data_t *requesting_patient = NULL;
 
@@ -228,7 +236,7 @@ int add_request(int patient_id, uint32_t request_timestamp) {
     request_data_t new_request;
     new_request.patient_id = patient_id;
     new_request.triage_code = requesting_patient->triage_code;  //  Assistance requests cannot update the triage code
-    new_request.timestamp = request_timestamp;
+    new_request.assistance_timestamp = assistance_timestamp;
 
     //  The request will be successfully added (there's enough place for a request per patient)
     requesting_patient->status = STATUS_PENDING;
@@ -241,7 +249,7 @@ int add_request(int patient_id, uint32_t request_timestamp) {
             continue;
         
         //  The i-th request has the same priority but was issued first
-        else if(request_queue[i].triage_code == new_request.triage_code && request_queue[i].timestamp < request_timestamp) 
+        else if(request_queue[i].triage_code == new_request.triage_code && request_queue[i].assistance_timestamp < assistance_timestamp) 
             continue;
 
         //  The new request has to be placed in an occupied slot after the others get shifted right by one position
@@ -352,7 +360,9 @@ void print_patients() {
     LOG_DBG("PATIENT LIST:\n");
     int i;
     for(i = 0; i < MAX_PATIENT_NUMBER; i++) {
-        LOG_DBG("Slot: %i\tID: %li\tCode: %i\tStatus: %i\tTimestamp: %i\n", i, nurse_patients[i].patient_id, nurse_patients[i].triage_code, nurse_patients[i].status, nurse_patients[i].timestamp);
+        LOG_DBG("Slot: %i\t ID: %li\t SSN: %s\t Name: %s\t Surname: %s\t Code: %i\t Reception timestamp: %i\t Last visit timestamp: %i\t Status: %i\n", 
+            i, nurse_patients[i].patient_id, nurse_patients[i].SSN, nurse_patients[i].name, nurse_patients[i].surname,
+            nurse_patients[i].triage_code, nurse_patients[i].reception_timestamp, nurse_patients[i].last_visit_timestamp, nurse_patients[i].status);
     }
 }
 
@@ -361,7 +371,7 @@ void print_requests() {
     LOG_DBG("REQUEST LIST (%i active request(s)):\n", current_requests);
     int i;
     for(i = 0; i < current_requests; i++) {
-        LOG_DBG("Slot: %i\tID: %li\tCode: %i\tTimestamp: %i\n", i, request_queue[i].patient_id, request_queue[i].triage_code, request_queue[i].timestamp);
+        LOG_DBG("Slot: %i\tID: %li\tCode: %i\tTimestamp: %i\n", i, request_queue[i].patient_id, request_queue[i].triage_code, request_queue[i].assistance_timestamp);
     }
 }
 

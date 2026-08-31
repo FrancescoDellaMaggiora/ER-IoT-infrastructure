@@ -1,3 +1,6 @@
+//  Patient name and surname's buffer size
+#define NAME_SIZE 30
+
 //  Triage emergency color codes
 typedef enum {
     CODE_RED    = 1,    //  0   minutes (max priority)
@@ -10,11 +13,15 @@ typedef enum {
 //  Patient info
 typedef struct {
     long patient_id;
-    char name[30];
-    char surname[30];
+
+    char SSN[SSN_SIZE];
+    char name[NAME_SIZE];
+    char surname[NAME_SIZE];
+
     triage_code_t triage_code;
-    uint32_t timestamp;
-} patient_info_t;
+    uint32_t reception_timestamp;
+    uint32_t last_visit_timestamp;
+} patient_data_t;
 
 //  Initialize patient (used for testing)
-void init_patient(patient_info_t*);
+void init_patient(patient_data_t*);
