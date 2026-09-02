@@ -116,7 +116,6 @@ static void res_post_handler(coap_message_t *request, coap_message_t *response, 
 
         case RESULT_SUCCESS:
             LOG_INFO("Patient %i has been associated\n", patient_id);
-            notify_request_led();
             coap_set_status_code(response, CREATED_2_01);
             return;
         

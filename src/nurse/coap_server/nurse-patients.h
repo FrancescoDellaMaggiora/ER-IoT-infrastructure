@@ -1,8 +1,13 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "dev/leds.h"
+
 //  Max number of patients that can be associated to a nurse
-#define MAX_PATIENT_NUMBER 10
+#define MAX_PATIENT_NUMBER 7
+
+//  Max number of colors available (Nordic nRF52840 Dongle)
+#define MAX_COLORS 7
 
 //  Social security number's size (9 characters + '\0')
 #define SSN_SIZE 10
@@ -18,6 +23,15 @@
 #define RESULT_PATIENT_ALREADY_ASSOCIATED   -3
 #define RESULT_PATIENT_ALREADY_PENDING      -4
 #define RESULT_PATIENT_NOT_PENDING          -5
+
+//  Definition of possible led colors (Nordic nRF52840 Dongle)
+#define RED     LEDS_RED
+#define GREEN   LEDS_GREEN
+#define BLUE    LEDS_BLUE
+#define YELLOW  (LEDS_RED | LEDS_GREEN)
+#define MAGENTA (LEDS_RED | LEDS_BLUE)
+#define CYAN    (LEDS_GREEN | LEDS_BLUE)
+#define WHITE   (LEDS_RED | LEDS_GREEN | LEDS_BLUE)
 
 //  Defition of states a patient can be in
 typedef enum {
@@ -35,8 +49,11 @@ typedef enum {
     CODE_WHITE  = 5     //  240 minutes (min priority)
 } triage_code_t;
 
-//  Patient data structure
+
+
+//  ---------- Patient data structure ----------
 typedef struct {
+
     long patient_id;
 
     char SSN[SSN_SIZE];
@@ -47,15 +64,37 @@ typedef struct {
     uint32_t reception_timestamp;
     uint32_t last_visit_timestamp;
 
-    patient_status_t status;
-} patient_data_t;
+    int led_color;
 
-//  Request data structure (same as the previous one except for the removed status field)
+    patient_status_t status;
+
+} patient_data_t;
+//  --------------------------------------------
+
+
+
+//  ---------- Request data structure ----------
 typedef struct {
+
     long patient_id;
     triage_code_t triage_code;
     uint32_t assistance_timestamp;
+    int led_color;
+
 } request_data_t;
+//  --------------------------------------------
+
+
+
+//  ---------- Led colors data structure -------
+//  To assign colors to patients, free colors need to be tracked
+typedef struct {
+
+    int color;
+    int free;
+
+} color_t;
+//  --------------------------------------------
 
 
 
@@ -70,6 +109,15 @@ typedef struct {
 
     //  Return a pointer to a specific patient
     patient_data_t* get_patient_pointer(int);
+    
+    //  Return the first free color
+    int get_new_color();
+
+    //  Free the specified color
+    void free_color(int);
+
+    //  Update the device leds based on the head of the request queue
+    void update_leds();
     
 //  UTILITY FUNCTIONS END
 /*---------------------------------------------------------------------------*/

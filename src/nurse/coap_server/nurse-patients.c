@@ -52,7 +52,8 @@ static request_data_t request_queue[MAX_PATIENT_NUMBER];
 //  Keep track of the current request number
 static uint8_t current_requests;
 
-
+//  Array to keep track of free colors that can be associated to new patients
+static color_t available_colors[MAX_COLORS];
 
 /*---------------------------------------------------------------------------*/
 //  UTILITY FUNCTIONS
@@ -67,6 +68,18 @@ void init_arrays(void)
 
     for(i = 0; i < MAX_PATIENT_NUMBER; i++) {
         nurse_patients[i].status = STATUS_FREE_SLOT;
+    }
+
+    available_colors[0].color = RED;
+    available_colors[1].color = GREEN;
+    available_colors[2].color = BLUE;
+    available_colors[3].color = YELLOW;
+    available_colors[4].color = MAGENTA;
+    available_colors[5].color = CYAN;
+    available_colors[6].color = WHITE;
+
+    for(i = 0; i < MAX_COLORS; i++) {
+        available_colors[i].free = 1;
     }
 
     current_requests = 0;
@@ -99,6 +112,47 @@ patient_data_t* get_patient_pointer(int patient_id) {
 
     //  Patient not associated
     return NULL;
+}
+
+//  Return the first free color
+int get_new_color() {
+    int i;
+    
+    for(i = 0; i < MAX_COLORS; i++) {
+
+        if(available_colors[i].free == 1) {
+            available_colors[i].free = 0;
+            return available_colors[i].color;
+        }
+
+    }
+
+    return -1;
+}
+
+//  Free the specified color
+void free_color(int freed_color) {
+    int i;
+    
+    for(i = 0; i < MAX_COLORS; i++) {
+
+        if(available_colors[i].color == freed_color) {
+            available_colors[i].free = 1;
+            return;
+        }
+
+    }
+}
+
+//  Update the device leds with the color of the patient at the head of the request queue
+void update_leds() {
+    //  Turn off all leds
+    leds_off(LEDS_ALL);
+
+    if(current_requests == 0) 
+        return;
+
+    leds_on(request_queue[0].led_color);
 }
 
 //  UTILITY FUNCTIONS END
@@ -148,13 +202,20 @@ int add_patient(int patient_id, char *SSN, char *name, char *surname, int triage
         if (nurse_patients[i].status == STATUS_FREE_SLOT) {
 
             nurse_patients[i].patient_id = patient_id;
+
             strcpy(nurse_patients[i].SSN, SSN);
             strcpy(nurse_patients[i].name, name);
             strcpy(nurse_patients[i].surname, surname);
+
             nurse_patients[i].triage_code = triage_code;
-            nurse_patients[i].status = STATUS_IDLE;
+
             nurse_patients[i].reception_timestamp = reception_timestamp;
             nurse_patients[i].last_visit_timestamp = last_visit_timestamp;
+
+            //  Associate the patient to a color
+            nurse_patients[i].led_color = get_new_color();
+
+            nurse_patients[i].status = STATUS_IDLE;
 
             return RESULT_SUCCESS;
         }
@@ -178,7 +239,13 @@ int remove_patient(int patient_id) {
     for(i = 0; i < MAX_PATIENT_NUMBER; i++) {
 
         if (nurse_patients[i].status != STATUS_FREE_SLOT && nurse_patients[i].patient_id == patient_id) {
+
+            //  Free this patient's color
+            free_color(nurse_patients[i].led_color);
+            
+            //  Free the nurse_patient array slot
             nurse_patients[i].status = STATUS_FREE_SLOT;
+
             found = true;
             break;
         }
@@ -188,11 +255,13 @@ int remove_patient(int patient_id) {
     if(!found)
         return RESULT_PATIENT_NOT_ASSOCIATED;
 
+    //  Remove this patient's request (if there)
     for(i = 0; i < current_requests; i++) {
         if(request_queue[i].patient_id == patient_id) {
 
             //  Overwrite i-th request by shifting the next ones to the left
             shift_requests(i);
+            update_leds();
             break;
         }
     }
@@ -237,6 +306,7 @@ int add_request(int patient_id, uint32_t assistance_timestamp) {
     new_request.patient_id = patient_id;
     new_request.triage_code = requesting_patient->triage_code;  //  Assistance requests cannot update the triage code
     new_request.assistance_timestamp = assistance_timestamp;
+    new_request.led_color = requesting_patient->led_color;
 
     //  The request will be successfully added (there's enough place for a request per patient)
     requesting_patient->status = STATUS_PENDING;
@@ -263,6 +333,9 @@ int add_request(int patient_id, uint32_t assistance_timestamp) {
 
             request_queue[i] = new_request;
             current_requests++;
+
+            //  Turn on the first request's led
+            update_leds();
             return RESULT_SUCCESS;
         }
     }
@@ -271,6 +344,8 @@ int add_request(int patient_id, uint32_t assistance_timestamp) {
     request_queue[current_requests] = new_request;
     current_requests++;
 
+    //  Turn on the first request's led
+    update_leds();
     return RESULT_SUCCESS;
 }
 
@@ -300,6 +375,7 @@ request_data_t get_next_request() {
     request_return = request_queue[0];
     shift_requests(0);
 
+    update_leds();
     return request_return;
 }
 
@@ -344,6 +420,7 @@ request_data_t get_request_by_id(int patient_id) {
 
     }
 
+    update_leds();
     return request_return;
 }
 
@@ -360,9 +437,9 @@ void print_patients() {
     LOG_DBG("PATIENT LIST:\n");
     int i;
     for(i = 0; i < MAX_PATIENT_NUMBER; i++) {
-        LOG_DBG("Slot: %i\t ID: %li\t SSN: %s\t Name: %s\t Surname: %s\t Code: %i\t Reception timestamp: %i\t Last visit timestamp: %i\t Status: %i\n", 
+        LOG_DBG("Slot: %i\t ID: %li\t SSN: %s\t Name: %s\t Surname: %s\t Code: %i\t Reception timestamp: %i\t Last visit timestamp: %i\t Led color: %i\t Status: %i\n", 
             i, nurse_patients[i].patient_id, nurse_patients[i].SSN, nurse_patients[i].name, nurse_patients[i].surname,
-            nurse_patients[i].triage_code, nurse_patients[i].reception_timestamp, nurse_patients[i].last_visit_timestamp, nurse_patients[i].status);
+            nurse_patients[i].triage_code, nurse_patients[i].reception_timestamp, nurse_patients[i].last_visit_timestamp, nurse_patients[i].led_color, nurse_patients[i].status);
     }
 }
 
@@ -371,7 +448,8 @@ void print_requests() {
     LOG_DBG("REQUEST LIST (%i active request(s)):\n", current_requests);
     int i;
     for(i = 0; i < current_requests; i++) {
-        LOG_DBG("Slot: %i\tID: %li\tCode: %i\tTimestamp: %i\n", i, request_queue[i].patient_id, request_queue[i].triage_code, request_queue[i].assistance_timestamp);
+        LOG_DBG("Slot: %i\tID: %li\tCode: %i\tTimestamp: %i\t Led color: %i\n", 
+            i, request_queue[i].patient_id, request_queue[i].triage_code, request_queue[i].assistance_timestamp, request_queue[i].led_color);
     }
 }
 

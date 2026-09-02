@@ -13,8 +13,5 @@
 #define DBG_ADD_PATIENT 0
 #endif
 
-//  When a request is accepted the led is turned on
-void notify_request_led();
-
 //  When an assistance request is acknowledged the head of the request queue has to be removed and the led has to be turned off
 void assistance_ack();
