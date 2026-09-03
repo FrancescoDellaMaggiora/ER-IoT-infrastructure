@@ -1,3 +1,6 @@
+#ifndef NURSE_PATIENTS_H_
+#define NURSE_PATIENTS_H_
+
 #include <stdint.h>
 #include <stddef.h>
 
@@ -24,14 +27,7 @@
 #define RESULT_PATIENT_ALREADY_PENDING      -4
 #define RESULT_PATIENT_NOT_PENDING          -5
 
-//  Definition of possible led colors (Nordic nRF52840 Dongle)
-#define RED     LEDS_RED
-#define GREEN   LEDS_GREEN
-#define BLUE    LEDS_BLUE
-#define YELLOW  (LEDS_RED | LEDS_GREEN)
-#define MAGENTA (LEDS_RED | LEDS_BLUE)
-#define CYAN    (LEDS_GREEN | LEDS_BLUE)
-#define WHITE   (LEDS_RED | LEDS_GREEN | LEDS_BLUE)
+#define COLOR_INVALID 0
 
 //  Defition of states a patient can be in
 typedef enum {
@@ -49,7 +45,21 @@ typedef enum {
     CODE_WHITE  = 5     //  240 minutes (min priority)
 } triage_code_t;
 
-
+//  Patient led colors
+typedef enum {
+    RED       = 1,
+    GREEN     = 2,
+    BLUE      = 3,
+    YELLOW    = 4,
+    MAGENTA   = 5,
+    CYAN      = 6,
+    WHITE     = 7
+} patient_led_color_t;
+/*
+    Each patient is paired with a led color. Led handling features are platform-dependent, so the way colors are handled is the following:
+    The previous enum "patient_led_color_t" is a series of logical values for each color.
+    There is then a function called "color_to_led_mask" which maps these logical values into real device-dependent color masks.
+*/
 
 //  ---------- Patient data structure ----------
 typedef struct {
@@ -64,7 +74,7 @@ typedef struct {
     uint32_t reception_timestamp;
     uint32_t last_visit_timestamp;
 
-    int led_color;
+    patient_led_color_t led_color;
 
     patient_status_t status;
 
@@ -79,7 +89,7 @@ typedef struct {
     long patient_id;
     triage_code_t triage_code;
     uint32_t assistance_timestamp;
-    int led_color;
+    patient_led_color_t led_color;
 
 } request_data_t;
 //  --------------------------------------------
@@ -90,10 +100,10 @@ typedef struct {
 //  To assign colors to patients, free colors need to be tracked
 typedef struct {
 
-    int color;
+    patient_led_color_t color;
     int free;
 
-} color_t;
+} color_status_t;
 //  --------------------------------------------
 
 
@@ -110,16 +120,30 @@ typedef struct {
     //  Return a pointer to a specific patient
     patient_data_t* get_patient_pointer(int);
     
+//  UTILITY FUNCTIONS END
+/*---------------------------------------------------------------------------*/
+
+
+
+/*---------------------------------------------------------------------------*/
+//  LEDS HANDLING FUNCTIONS
+
     //  Return the first free color
-    int get_new_color();
+    patient_led_color_t get_new_color();
 
     //  Free the specified color
-    void free_color(int);
+    void free_color(patient_led_color_t);
+
+    //  Led colors are treated as numbers starting from 1. The correct mask is platform dependent, this funciton maps the colors to the Nordic nRF52840 Dongle masks
+    int color_to_led_mask(patient_led_color_t);
 
     //  Update the device leds based on the head of the request queue
     void update_leds();
     
-//  UTILITY FUNCTIONS END
+    //  Retrive the patient's led color name (e.g. "GREEN" instead of a number)
+    int get_patient_color_name(int, char*);
+
+//  LEDS HANDLING FUNCTIONS END
 /*---------------------------------------------------------------------------*/
 
 
@@ -169,3 +193,5 @@ typedef struct {
 
 //  DEBUG FUNCTIONS END
 /*---------------------------------------------------------------------------*/
+
+#endif /* NURSE_PATIENTS_H_ */

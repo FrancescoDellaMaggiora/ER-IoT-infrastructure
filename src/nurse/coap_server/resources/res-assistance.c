@@ -101,6 +101,32 @@ static void res_post_handler(coap_message_t *request, coap_message_t *response, 
 
         case RESULT_SUCCESS:
             LOG_INFO("Assistance request by patient %i has been reported\n", patient_id);
+
+            /*
+                Response payload constrcution.
+                The response payload must contain the led color associated to the new patient:
+
+                {"LED_COLOR":   <color>}
+            */
+
+            char color[10];
+            
+            if(get_patient_color_name(patient_id, color) != 1) {
+                LOG_ERR("Error patient: %i: unable to retrieve LED color\n", patient_id);
+                coap_set_status_code(response, INTERNAL_SERVER_ERROR_5_00);
+                return;
+            }
+
+            int len = snprintf((char *)buffer, preferred_size, "{\"LED_COLOR\":\"%s\"}", color);
+
+            if(len < 0 || len >= preferred_size) {
+                LOG_ERR("Error patient %i: invalid response payload size\n", patient_id);
+                coap_set_status_code(response, INTERNAL_SERVER_ERROR_5_00);
+                return;
+            }
+
+            coap_set_header_content_format(response, APPLICATION_JSON);
+            coap_set_payload(response, buffer, len);
             coap_set_status_code(response, CHANGED_2_04);
             return;
         

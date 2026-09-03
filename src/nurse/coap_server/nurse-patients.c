@@ -53,7 +53,7 @@ static request_data_t request_queue[MAX_PATIENT_NUMBER];
 static uint8_t current_requests;
 
 //  Array to keep track of free colors that can be associated to new patients
-static color_t available_colors[MAX_COLORS];
+static color_status_t available_colors[MAX_COLORS];
 
 /*---------------------------------------------------------------------------*/
 //  UTILITY FUNCTIONS
@@ -70,6 +70,7 @@ void init_arrays(void)
         nurse_patients[i].status = STATUS_FREE_SLOT;
     }
 
+    //  Initialize available logic colors
     available_colors[0].color = RED;
     available_colors[1].color = GREEN;
     available_colors[2].color = BLUE;
@@ -114,8 +115,16 @@ patient_data_t* get_patient_pointer(int patient_id) {
     return NULL;
 }
 
+//  UTILITY FUNCTIONS END
+/*---------------------------------------------------------------------------*/
+
+
+
+/*---------------------------------------------------------------------------*/
+//  LEDS HANDLING FUNCTIONS
+
 //  Return the first free color
-int get_new_color() {
+patient_led_color_t get_new_color() {
     int i;
     
     for(i = 0; i < MAX_COLORS; i++) {
@@ -127,11 +136,11 @@ int get_new_color() {
 
     }
 
-    return -1;
+    return COLOR_INVALID;
 }
 
 //  Free the specified color
-void free_color(int freed_color) {
+void free_color(patient_led_color_t freed_color) {
     int i;
     
     for(i = 0; i < MAX_COLORS; i++) {
@@ -144,6 +153,38 @@ void free_color(int freed_color) {
     }
 }
 
+//  Led colors are treated as numbers starting from 1. The correct mask is platform dependent, this funciton maps the colors to the Nordic nRF52840 Dongle masks
+int color_to_led_mask(patient_led_color_t color) {
+
+    switch(color) {
+
+        case RED:
+            return LEDS_RED;
+
+        case GREEN:
+            return LEDS_GREEN;
+
+        case BLUE:
+            return LEDS_BLUE;
+
+        case YELLOW:
+            return LEDS_RED | LEDS_GREEN;
+
+        case MAGENTA:
+            return LEDS_RED | LEDS_BLUE;
+
+        case CYAN:
+            return LEDS_GREEN | LEDS_BLUE;
+
+        case WHITE:
+            return LEDS_RED | LEDS_GREEN | LEDS_BLUE;
+
+        default:
+            return 0;
+    }
+
+}
+
 //  Update the device leds with the color of the patient at the head of the request queue
 void update_leds() {
     //  Turn off all leds
@@ -152,10 +193,58 @@ void update_leds() {
     if(current_requests == 0) 
         return;
 
-    leds_on(request_queue[0].led_color);
+    leds_on(color_to_led_mask(request_queue[0].led_color));
 }
 
-//  UTILITY FUNCTIONS END
+//  Retrive the patient's led color name (e.g. "GREEN" instead of a number)
+int get_patient_color_name(int patient_id, char *color_name) {
+
+    patient_data_t *patient = get_patient_pointer(patient_id);
+
+    //  Patient not associated
+    if(patient == NULL) 
+        return RESULT_PATIENT_NOT_ASSOCIATED;
+
+    switch(patient->led_color) {
+
+        case RED:
+            strcpy(color_name, "RED");
+            return 1;
+
+        case GREEN:
+            strcpy(color_name, "GREEN");
+            return 1;
+
+        case BLUE:
+            strcpy(color_name, "BLUE");
+            return 1;
+
+        case YELLOW:
+            strcpy(color_name, "YELLOW");
+            return 1;
+
+        case MAGENTA:
+            strcpy(color_name, "MAGENTA");
+            return 1;
+
+        case CYAN:
+            strcpy(color_name, "CYAN");
+            return 1;
+
+        case WHITE:
+            strcpy(color_name, "WHITE");
+            return 1;
+        
+        default:
+            strcpy(color_name, "ERROR");
+            return -1;
+
+    }   
+    
+    return -1;
+}
+
+//  LEDS HANDLING FUNCTIONS END
 /*---------------------------------------------------------------------------*/
 
 
@@ -448,7 +537,7 @@ void print_requests() {
     LOG_DBG("REQUEST LIST (%i active request(s)):\n", current_requests);
     int i;
     for(i = 0; i < current_requests; i++) {
-        LOG_DBG("Slot: %i\tID: %li\tCode: %i\tTimestamp: %i\t Led color: %i\n", 
+        LOG_DBG("Slot: %i\t ID: %li\t Code: %i\t Timestamp: %i\t Led color: %i\n", 
             i, request_queue[i].patient_id, request_queue[i].triage_code, request_queue[i].assistance_timestamp, request_queue[i].led_color);
     }
 }

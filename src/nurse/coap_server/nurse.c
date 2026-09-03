@@ -14,6 +14,7 @@
 
 extern coap_resource_t res_association;
 extern coap_resource_t res_assistance;
+extern coap_resource_t res_obs_status;
 
 PROCESS(er_example_server, "Nurse CoAP server");
 AUTOSTART_PROCESSES(&er_example_server);
@@ -48,7 +49,7 @@ PROCESS_THREAD(er_example_server, ev, data)
 
       //  %TODO: This is hard-coded (obviously, this is for debugging purpouses)
       for(i = 1; i <= patients_to_add; i++)
-        add_patient(i, CODE_BLUE, 1);
+        add_patient(i, "RSSMRA800", "Mario", "Rossi", CODE_BLUE, 1, 1);
 
       print_patients();
 
@@ -68,6 +69,10 @@ PROCESS_THREAD(er_example_server, ev, data)
   //  Patients assistance resource
   //  PATIENT -> NURSE
   coap_activate_resource(&res_assistance, "er/patient/assistance");
+
+  //  Assistance request status observable resouce
+  //  NURSE -> PATIENT
+  coap_activate_resource(&res_obs_status, "er/patient/assistance/status");
 
   /* Define application-specific events here. */
   while(1) {
