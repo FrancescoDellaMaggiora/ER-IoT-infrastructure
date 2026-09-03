@@ -332,6 +332,9 @@ int remove_patient(int patient_id) {
             //  Free this patient's color
             free_color(nurse_patients[i].led_color);
             
+            //  Optional: reset every field of this entry
+            memset(&nurse_patients[i], 0, sizeof(nurse_patients[i]));
+
             //  Free the nurse_patient array slot
             nurse_patients[i].status = STATUS_FREE_SLOT;
 

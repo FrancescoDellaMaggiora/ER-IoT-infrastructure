@@ -531,3 +531,52 @@ int parse_association_payload(const uint8_t *buffer, int payload_len, int *patie
 
     return 0;
 }
+
+//  Extract the patient ID from a dissociation request
+int parse_dissociation_payload(const uint8_t *payload, int *patient_id) {
+
+    const char *key = "\"PATIENT_ID\":";
+    const char *start;
+    char *endptr;
+    long value;
+
+    if(payload == NULL || patient_id == NULL) {
+        return -1;
+    }
+
+    //  Find PATIENT_ID
+    start = strstr((const char *)payload, key);
+
+    if(start == NULL) {
+        return -1;
+    }
+
+    //  Move after "PATIENT_ID":
+    start += strlen(key);
+
+    //  Convert the numeric value
+    value = strtol(start, &endptr, 10);
+
+    //  No valid number found
+    if(endptr == start) {
+        return -1;
+    }
+
+    //  Make sure there is nothing unexpected after the number
+    while(*endptr == ' ' || *endptr == '\t') {
+        endptr++;
+    }
+
+    if(*endptr != '}' && *endptr != '\0') {
+        return -1;
+    }
+
+    //  Patient IDs must be positive
+    if(value <= 0) {
+        return -1;
+    }
+
+    *patient_id = (int)value;
+
+    return 0;
+}
