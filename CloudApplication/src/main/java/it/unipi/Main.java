@@ -1,8 +1,6 @@
 package it.unipi;
 
-import it.unipi.CoAP.CloudCoapServer;
-import it.unipi.CoAP.PatientAssociationClient;
-import it.unipi.CoAP.PatientCallClient;
+import it.unipi.CoAP.*;
 import it.unipi.Doctor.DoctorApiServer;
 import it.unipi.MQTT.MQTTThread;
 import it.unipi.MQTT.Vitals;
@@ -23,7 +21,7 @@ public class Main {
 
     private static final int DOCTOR_API_PORT = 7000;
     private static final String NURSES_CONFIG_PATH = "config/nurses.json";
-    private static final String DEVICE_CONFIG_PATH = "config/devices.json";
+    private static final String DEVICES_CONFIG_PATH = "config/devices.json";
     private static final String MQTT_CONFIG_PATH = "config/mqtt.properties";
     private static final String DB_CONFIG_PATH = "config/database.properties";
     private static final String STORAGE_CONFIG_PATH = "config/storage.properties";
@@ -79,15 +77,18 @@ public class Main {
             NurseAssignmentService nurseAssignmentService =
                     new NurseAssignmentService(nurseConfig, nurseStore);
 
-            PatientAssociationClient patientAssociationClient = new PatientAssociationClient();
+            DeviceConfig deviceConfig = new DeviceConfig(DEVICES_CONFIG_PATH);
 
-            DeviceConfig deviceConfig = new DeviceConfig(DEVICE_CONFIG_PATH);
+            PatientAssociationClient patientAssociationClient = new PatientAssociationClient();
             PatientCallClient patientCallClient = new PatientCallClient();
+            PatientTriageUpdateClient patientTriageUpdateClient = new PatientTriageUpdateClient();
+            NurseTriageUpdateClient nurseTriageUpdateClient = new NurseTriageUpdateClient();
             NextPatientSelector nextPatientSelector = new NextPatientSelector(patientRepository);
 
             doctorApiServer = new DoctorApiServer(DOCTOR_API_PORT, patientRepository,
                     nurseAssignmentService, patientAssociationClient,
-                    nextPatientSelector, deviceConfig, patientCallClient);
+                    nextPatientSelector, deviceConfig, patientCallClient,
+                    patientTriageUpdateClient, nurseTriageUpdateClient);
             doctorApiServer.start();
 
             cloudCoapServer = new CloudCoapServer(patientRepository, nurseStore, nurseConfig);

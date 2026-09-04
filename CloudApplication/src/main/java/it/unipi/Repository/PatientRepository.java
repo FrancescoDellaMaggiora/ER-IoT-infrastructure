@@ -189,4 +189,40 @@ public class PatientRepository {
             ps.executeUpdate();
         }
     }
+
+    /**
+     * @return the device_id of the patient's ACTIVE device assignment,
+     *         or null if the patient has no active assignment (e.g.
+     *         unknown patient_id, or already discharged)
+     */
+    public String findActiveDeviceForPatient(int patientId) throws SQLException {
+        String sql = "SELECT device_id FROM device_assignments " +
+                "WHERE patient_id = ? AND released_at IS NULL";
+
+        try (Connection conn = DriverManager.getConnection(url, user, password);
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, patientId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getString("device_id") : null;
+            }
+        }
+    }
+
+    /**
+     * Updates a patient's triage code. The trg_triage_history_update
+     * trigger fires automatically on the DB side, appending a row to
+     * triage_history if the value actually changed - no application
+     * code needed for that part.
+     *
+     * @return true if a row was actually updated (patient_id existed), false otherwise
+     */
+    public boolean updateTriageCode(int patientId, String newTriageCode) throws SQLException {
+        String sql = "UPDATE patients SET triage_code = ? WHERE patient_id = ?";
+        try (Connection conn = DriverManager.getConnection(url, user, password);
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, newTriageCode);
+            ps.setInt(2, patientId);
+            return ps.executeUpdate() > 0;
+        }
+    }
 }

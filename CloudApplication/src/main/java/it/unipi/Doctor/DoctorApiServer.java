@@ -2,8 +2,10 @@ package it.unipi.Doctor;
 
 import io.javalin.Javalin;
 import io.javalin.http.Context;
+import it.unipi.CoAP.NurseTriageUpdateClient;
 import it.unipi.CoAP.PatientAssociationClient;
 import it.unipi.CoAP.PatientCallClient;
+import it.unipi.CoAP.PatientTriageUpdateClient;
 import it.unipi.Nurse.Nurse;
 import it.unipi.Nurse.NurseAssignmentService;
 import it.unipi.Repository.PatientRepository;
@@ -16,6 +18,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 
 import it.unipi.Patient.*;
+import it.unipi.Doctor.UpdateTriageResponse;
 
 /**
  * HTTP server exposing the doctor-facing REST endpoints.
@@ -35,15 +38,20 @@ public class DoctorApiServer {
     private final PatientCallClient patientCallClient;
     private final NextPatientSelector nextPatientSelector;
     private final NurseAssignmentService nurseAssignmentService;
+    private final NurseTriageUpdateClient nurseTriageUpdateClient;
     private final PatientAssociationClient patientAssociationClient;
+    private final PatientTriageUpdateClient patientTriageUpdateClient;
 
 
-    public DoctorApiServer(int port, PatientRepository patientRepository,
+    public DoctorApiServer(int port,
+                           PatientRepository patientRepository,
                            NurseAssignmentService nurseAssignmentService,
                            PatientAssociationClient patientAssociationClient,
                            NextPatientSelector nextPatientSelector,
                            DeviceConfig deviceConfig,
-                           PatientCallClient patientCallClient) {
+                           PatientCallClient patientCallClient,
+                           PatientTriageUpdateClient patientTriageUpdateClient,
+                           NurseTriageUpdateClient nurseTriageUpdateClient) {
         this.port = port;
         this.patientRepository = patientRepository;
         this.nurseAssignmentService = nurseAssignmentService;
@@ -51,12 +59,14 @@ public class DoctorApiServer {
         this.nextPatientSelector = nextPatientSelector;
         this.deviceConfig = deviceConfig;
         this.patientCallClient = patientCallClient;
+        this.patientTriageUpdateClient = patientTriageUpdateClient;
+        this.nurseTriageUpdateClient = nurseTriageUpdateClient;
 
         this.app = Javalin.create(config -> {
             config.routes.post("/er/doctor/register", this::handleRegister);
             config.routes.post("/er/doctor/next-patient", this::handleNextPatient);
+            config.routes.post("/er/doctor/update-triage", this::handleUpdateTriage);
         });
-        ;
     }
 
     public void start() {
@@ -186,4 +196,84 @@ public class DoctorApiServer {
 
         ctx.status(200).json(new NextPatientResponse(next.getPatientId(), next.getDeviceId()));
     }
+
+    private void handleUpdateTriage(Context ctx) {
+        UpdateTriageRequest req = ctx.bodyAsClass(UpdateTriageRequest.class);
+
+        if (req.getPatientId() == null || req.getTriageCode() == null) {
+            ctx.status(400).json(new ErrorResponse("Missing id_paziente or triage_code"));
+            return;
+        }
+
+        int patientId;
+        int triageNumber;
+        try {
+            patientId = Integer.parseInt(req.getPatientId());
+            triageNumber = TriageCodeMapper.toNumber(req.getTriageCode());
+        } catch (NumberFormatException e) {
+            ctx.status(400).json(new ErrorResponse("Invalid id_paziente, expected an integer"));
+            return;
+        } catch (IllegalArgumentException e) {
+            ctx.status(400).json(new ErrorResponse(e.getMessage()));
+            return;
+        }
+
+        // 1. Update MySQL. The trg_triage_history_update trigger appends
+        //    to triage_history automatically - no application code for
+        //    that.
+        boolean updated;
+        try {
+            updated = patientRepository.updateTriageCode(patientId, req.getTriageCode());
+        } catch (SQLException e) {
+            ctx.status(500).json(new ErrorResponse("Database error: " + e.getMessage()));
+            return;
+        }
+
+        if (!updated) {
+            ctx.status(404).json(new ErrorResponse("Unknown patient_id " + patientId));
+            return;
+        }
+
+        // 2. Notify the PATIENT device. Warning-only on failure: the DB is already the source of truth.
+        String deviceId;
+        try {
+            deviceId = patientRepository.findActiveDeviceForPatient(patientId);
+        } catch (SQLException e) {
+            deviceId = null;
+            System.err.println("Warning: could not look up device for patient "
+                    + patientId + ": " + e.getMessage());
+        }
+
+        if (deviceId != null) {
+            String deviceAddress = deviceConfig.getCoapAddress(deviceId);
+            if (deviceAddress != null) {
+                try {
+                    patientTriageUpdateClient.notifyTriageChanged(deviceAddress, triageNumber);
+                } catch (IOException | ConnectorException e) {
+                    System.err.println("Warning: patient device " + deviceId
+                            + " was not notified of triage change: " + e.getMessage());
+                }
+            } else {
+                System.err.println("Warning: unknown device address for device " + deviceId);
+            }
+        } else {
+            System.err.println("Warning: patient " + patientId + " has no active device assignment");
+        }
+
+        // 3. Notify the NURSE device, dedicated resource
+        Nurse nurse = nurseAssignmentService.getNurseForPatient(patientId);
+        if (nurse != null) {
+            try {
+                nurseTriageUpdateClient.notifyTriageChanged(nurse, patientId, triageNumber);
+            } catch (IOException | ConnectorException e) {
+                System.err.println("Warning: nurse " + nurse.getNurseId()
+                        + " was not notified of triage change: " + e.getMessage());
+            }
+        } else {
+            System.err.println("Warning: no nurse on record for patient " + patientId);
+        }
+
+        ctx.status(200).json(new UpdateTriageResponse(patientId, req.getTriageCode()));
+    }
+
 }

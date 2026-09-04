@@ -22,4 +22,18 @@ public class NurseAssignmentService {
         }
         return store.pickAndAssign(candidates, patientId);
     }
+
+    /**
+     * @return the nurse currently assigned to this patient, or null if
+     *         none is on record (e.g. patient never registered, or the
+     *         Cloud restarted since - see NurseAssignmentStore's
+     *         in-memory trade-off)
+     */
+    public Nurse getNurseForPatient(int patientId) {
+        String nurseId = store.getNurseIdForPatient(patientId);
+        if (nurseId == null) {
+            return null;
+        }
+        return nurseConfig.getById(nurseId);
+    }
 }
