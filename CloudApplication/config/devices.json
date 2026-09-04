@@ -1,0 +1,4 @@
+[
+  { "deviceId": "1", "coapAddress": "coap://[fd00:1::210:10:10:10]" },
+  { "deviceId": "2", "coapAddress": "coap://[fd00:1::211:11:11:11]" }
+]

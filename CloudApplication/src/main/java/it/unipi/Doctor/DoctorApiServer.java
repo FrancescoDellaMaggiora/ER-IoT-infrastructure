@@ -3,6 +3,7 @@ package it.unipi.Doctor;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
 import it.unipi.CoAP.PatientAssociationClient;
+import it.unipi.CoAP.PatientCallClient;
 import it.unipi.Nurse.Nurse;
 import it.unipi.Nurse.NurseAssignmentService;
 import it.unipi.Repository.PatientRepository;
@@ -13,6 +14,8 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
+
+import it.unipi.Patient.*;
 
 /**
  * HTTP server exposing the doctor-facing REST endpoints.
@@ -27,21 +30,33 @@ public class DoctorApiServer {
     private final int port;
     private final Javalin app;
 
+    private final DeviceConfig deviceConfig;
     private final PatientRepository patientRepository;
+    private final PatientCallClient patientCallClient;
+    private final NextPatientSelector nextPatientSelector;
     private final NurseAssignmentService nurseAssignmentService;
     private final PatientAssociationClient patientAssociationClient;
 
+
     public DoctorApiServer(int port, PatientRepository patientRepository,
                            NurseAssignmentService nurseAssignmentService,
-                           PatientAssociationClient patientAssociationClient) {
+                           PatientAssociationClient patientAssociationClient,
+                           NextPatientSelector nextPatientSelector,
+                           DeviceConfig deviceConfig,
+                           PatientCallClient patientCallClient) {
         this.port = port;
         this.patientRepository = patientRepository;
         this.nurseAssignmentService = nurseAssignmentService;
         this.patientAssociationClient = patientAssociationClient;
+        this.nextPatientSelector = nextPatientSelector;
+        this.deviceConfig = deviceConfig;
+        this.patientCallClient = patientCallClient;
 
         this.app = Javalin.create(config -> {
             config.routes.post("/er/doctor/register", this::handleRegister);
+            config.routes.post("/er/doctor/next-patient", this::handleNextPatient);
         });
+        ;
     }
 
     public void start() {
@@ -106,10 +121,7 @@ public class DoctorApiServer {
             return;
         }
 
-        // Notifica al device dell'infermiere PRIMA di rispondere al medico,
-        // come richiesto - se questa fallisce, il paziente resta comunque
-        // registrato: si sceglie di non fare rollback (l'infermiere può
-        // essere ri-notificata manualmente), ma si segnala l'errore.
+        // Notifies the nurse's device BEFORE responding to the doctor, as requested
         try {
             patientAssociationClient.notifyAssociation(nurse, patientId, req.getSsn(),
                     req.getName(), req.getSurname(), req.getTriageCode(),
@@ -122,5 +134,56 @@ public class DoctorApiServer {
         }
 
         ctx.status(201).json(new RegisterPatientResponse(patientId, nurse.getNurseId()));
+    }
+
+    private void handleNextPatient(Context ctx) {
+        NextPatientRequest req = ctx.bodyAsClass(NextPatientRequest.class);
+
+        if (req.getDeptId() == null) {
+            ctx.status(400).json(new ErrorResponse("Missing id_dept"));
+            return;
+        }
+
+        int deptId;
+        try {
+            deptId = Integer.parseInt(req.getDeptId());
+        } catch (NumberFormatException e) {
+            ctx.status(400).json(new ErrorResponse("Invalid id_dept, expected an integer"));
+            return;
+        }
+
+        WaitingPatient next;
+        try {
+            next = nextPatientSelector.selectNext(deptId).orElse(null);
+        } catch (SQLException e) {
+            ctx.status(500).json(new ErrorResponse("Database error: " + e.getMessage()));
+            return;
+        }
+
+        if (next == null) {
+            ctx.status(404).json(new ErrorResponse("No active patients in department " + deptId));
+            return;
+        }
+
+        String deviceAddress = deviceConfig.getCoapAddress(next.getDeviceId());
+        if (deviceAddress == null) {
+            ctx.status(500).json(new ErrorResponse("Unknown device address for device " + next.getDeviceId()));
+            return;
+        }
+
+        try {
+            patientCallClient.notifyCalled(deviceAddress);
+        } catch (IOException | ConnectorException e) {
+            System.err.println("Warning: patient device " + next.getDeviceId() + " was not notified: " + e.getMessage());
+        }
+
+        try {
+            patientRepository.updateLastVisitTime(next.getPatientId(), LocalDateTime.now());
+        } catch (SQLException e) {
+            ctx.status(500).json(new ErrorResponse("Database error updating visit time: " + e.getMessage()));
+            return;
+        }
+
+        ctx.status(200).json(new NextPatientResponse(next.getPatientId(), next.getDeviceId()));
     }
 }

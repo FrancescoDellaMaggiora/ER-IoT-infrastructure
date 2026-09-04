@@ -1,4 +1,4 @@
-package it.unipi.Nurse;
+package it.unipi.Patient;
 
 import java.util.Map;
 
@@ -10,6 +10,14 @@ public final class TriageCodeMapper {
             "blue", 3,
             "green", 4,
             "white", 5
+    );
+
+    private static final Map<String, Integer> CODE_TO_REVISIT_MINUTES = Map.of(
+            "red", 0,
+            "orange", 15,
+            "blue", 60,
+            "green", 120,
+            "white", 240
     );
 
     private TriageCodeMapper() {}
@@ -32,5 +40,13 @@ public final class TriageCodeMapper {
             case 5 -> "white";
             default -> throw new IllegalArgumentException("Unknown triage code: " + triageCode);
         };
+    }
+
+    public static int targetRevisitMinutes(String triageCode) {
+        Integer value = CODE_TO_REVISIT_MINUTES.get(triageCode);
+        if (value == null) {
+            throw new IllegalArgumentException("Unknown triage code: " + triageCode);
+        }
+        return value;
     }
 }

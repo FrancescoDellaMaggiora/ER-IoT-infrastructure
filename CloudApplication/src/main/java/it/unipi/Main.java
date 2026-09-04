@@ -2,6 +2,7 @@ package it.unipi;
 
 import it.unipi.CoAP.CloudCoapServer;
 import it.unipi.CoAP.PatientAssociationClient;
+import it.unipi.CoAP.PatientCallClient;
 import it.unipi.Doctor.DoctorApiServer;
 import it.unipi.MQTT.MQTTThread;
 import it.unipi.MQTT.Vitals;
@@ -11,6 +12,7 @@ import it.unipi.Nurse.NurseConfig;
 import it.unipi.Repository.PatientRepository;
 import it.unipi.Storage.StorageThread;
 import org.eclipse.paho.client.mqttv3.MqttException;
+import it.unipi.Patient.*;
 
 import java.io.IOException;
 import java.util.concurrent.BlockingQueue;
@@ -21,9 +23,11 @@ public class Main {
 
     private static final int DOCTOR_API_PORT = 7000;
     private static final String NURSES_CONFIG_PATH = "config/nurses.json";
+    private static final String DEVICE_CONFIG_PATH = "config/devices.json";
     private static final String MQTT_CONFIG_PATH = "config/mqtt.properties";
     private static final String DB_CONFIG_PATH = "config/database.properties";
     private static final String STORAGE_CONFIG_PATH = "config/storage.properties";
+
 
     private static final int QUEUE_CAPACITY = 1000;
 
@@ -77,8 +81,13 @@ public class Main {
 
             PatientAssociationClient patientAssociationClient = new PatientAssociationClient();
 
+            DeviceConfig deviceConfig = new DeviceConfig(DEVICE_CONFIG_PATH);
+            PatientCallClient patientCallClient = new PatientCallClient();
+            NextPatientSelector nextPatientSelector = new NextPatientSelector(patientRepository);
+
             doctorApiServer = new DoctorApiServer(DOCTOR_API_PORT, patientRepository,
-                    nurseAssignmentService, patientAssociationClient);
+                    nurseAssignmentService, patientAssociationClient,
+                    nextPatientSelector, deviceConfig, patientCallClient);
             doctorApiServer.start();
 
             cloudCoapServer = new CloudCoapServer(patientRepository, nurseStore, nurseConfig);

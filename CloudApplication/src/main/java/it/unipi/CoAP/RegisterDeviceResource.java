@@ -5,8 +5,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import it.unipi.Nurse.Nurse;
 import it.unipi.Nurse.NurseAssignmentStore;
 import it.unipi.Nurse.NurseConfig;
-import it.unipi.Nurse.TriageCodeMapper;
-import it.unipi.Repository.ActivePatientInfo;
+import it.unipi.Patient.TriageCodeMapper;
+import it.unipi.Patient.ActivePatientInfo;
 import it.unipi.Repository.PatientRepository;
 import org.eclipse.californium.core.CoapResource;
 import org.eclipse.californium.core.coap.CoAP;
@@ -19,21 +19,16 @@ import java.util.List;
 /**
  * GET /er/patient/registration/{DEVICE_ID}
  *
- * Device bootstrap: the patient sensor node calls this once, ~1s after
- * boot, to learn which patient it has been attached to.
+ * Device bootstrap: the patient sensor node calls this once
+ * to learn which patient it has been attached to.
  *
  * Response payload, field names EXACTLY as required by the firmware
- * parser (parse_registration() in the device's client code):
+ * parser:
  *   {
  *     "PATIENT_ID":    <int>,
- *     "TRIAGE_CODE":   <int 1-5, see TriageCodeMapper / sensor.h>,
+ *     "TRIAGE_CODE":   <int 1-5, see TriageCodeMapper>,
  *     "NURSE_ADDRESS": "<bare IPv6 address, no brackets, no scheme>"
  *   }
- *
- * DEVICE_ID in the firmware is a plain integer (see snprintf("%i", ...)
- * in the client code); by decision, doctors register patients using
- * that same plain numeric string as id_device, so no normalization is
- * needed here - the device_id column comparison is a direct string match.
  */
 public class RegisterDeviceResource extends CoapResource {
 
@@ -116,10 +111,10 @@ public class RegisterDeviceResource extends CoapResource {
 
     @Override
     public org.eclipse.californium.core.server.resources.Resource getChild(String name) {
-        // Accetta qualunque segmento extra dopo "registration" (il DEVICE_ID)
-        // come parte di questa stessa risorsa, invece di cercare un figlio
-        // dichiarato esplicitamente - handleGET() legge poi il segmento
-        // dall'URI-Path completo.
+        // Accepts any extra segment after "registration" (the DEVICE_ID)
+        // as part of this same resource, instead of looking for an explicitly
+        // declared child - handleGET() then reads the segment
+        // from the full URI-Path.
         return this;
     }
 }

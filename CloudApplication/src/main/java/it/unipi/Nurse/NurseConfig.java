@@ -9,7 +9,8 @@ import java.util.stream.Collectors;
 
 /**
  * Static, in-memory registry of nurses, loaded once from a JSON file at
- * startup.
+ * startup. Nurses are NOT in MySQL - they're fixed infrastructure, per
+ * project decision. Only the current load is runtime state.
  */
 public class NurseConfig {
 

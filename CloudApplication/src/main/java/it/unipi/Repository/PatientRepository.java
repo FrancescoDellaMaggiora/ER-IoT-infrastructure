@@ -5,14 +5,16 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.sql.*;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
+
+import it.unipi.Patient.*;
 
 /**
  * Data access layer for patients and device assignments.
  *
- * Owns all SQL for the doctor-facing endpoints. DoctorApiServer never
- * builds a query itself - it calls methods here and translates the
- * outcome (success / SQLException) into an HTTP response.
+ * Owns all SQL for the doctor-facing endpoints.
  *
  * One connection per call (DriverManager), not a pool: the call volume
  * on this endpoint (patient registrations) is low compared to the
@@ -110,10 +112,6 @@ public class PatientRepository {
             return patientId;
 
         } catch (SQLException e) {
-            // NOTE: the connection is closed by try-with-resources
-            // regardless, which implicitly rolls back an uncommitted
-            // transaction - but being explicit here documents the
-            // intent and avoids relying on that implicit behaviour.
             throw e;
         }
     }
@@ -141,6 +139,54 @@ public class PatientRepository {
                 }
                 return new ActivePatientInfo(rs.getInt("patient_id"), rs.getString("triage_code"));
             }
+        }
+    }
+    
+    /**
+     * Patient still "active" (with a device and still in the ER) in a department
+     * with the last visit's time.
+     * 
+     * @param deptId Department that are we checking
+     * @return ArrayList of WaitingPatient. 
+     * @throws SQLException whenever something goes wrong
+     */
+    public List<WaitingPatient> findActivePatientsInDept(int deptId) throws SQLException {
+        String sql = "SELECT p.patient_id, da.device_id, p.triage_code, " +
+                "       COALESCE(p.last_visit_time, p.arrival_time) AS last_check " +
+                "FROM patients p " +
+                "JOIN device_assignments da ON da.patient_id = p.patient_id " +
+                "WHERE p.dept_id = ? AND da.released_at IS NULL";
+
+        List<WaitingPatient> result = new ArrayList<>();
+        try (Connection conn = DriverManager.getConnection(url, user, password);
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, deptId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    result.add(new WaitingPatient(
+                            rs.getInt("patient_id"),
+                            rs.getString("device_id"),
+                            rs.getString("triage_code"),
+                            rs.getTimestamp("last_check").toLocalDateTime()));
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Update to 'when' the last_visit_time of the patient 'patient_id'
+     * @param patientId Patient's ID that want to update
+     * @param when Timestamp of the visit
+     * @throws SQLException  whenever something goes wrong
+     */
+    public void updateLastVisitTime(int patientId, LocalDateTime when) throws SQLException {
+        String sql = "UPDATE patients SET last_visit_time = ? WHERE patient_id = ?";
+        try (Connection conn = DriverManager.getConnection(url, user, password);
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setTimestamp(1, Timestamp.valueOf(when));
+            ps.setInt(2, patientId);
+            ps.executeUpdate();
         }
     }
 }

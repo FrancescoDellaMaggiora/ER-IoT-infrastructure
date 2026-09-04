@@ -1,4 +1,4 @@
-package it.unipi.Repository;
+package it.unipi.Patient;
 
 public class ActivePatientInfo {
     private final int patientId;
