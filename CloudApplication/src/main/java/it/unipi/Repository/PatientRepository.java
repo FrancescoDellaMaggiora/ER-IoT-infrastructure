@@ -117,4 +117,30 @@ public class PatientRepository {
             throw e;
         }
     }
+
+    /**
+     * Looks up the patient currently (actively) assigned to a given
+     * device. Used by the device bootstrap endpoint
+     * (GET /er/patient/registration/{DEVICE_ID}).
+     *
+     * @return info of the patient with an ACTIVE device assignment, or
+     *         null if no active assignment exists for this device_id
+     */
+    public ActivePatientInfo findActivePatientByDevice(String deviceId) throws SQLException {
+        String sql = "SELECT p.patient_id, p.triage_code " +
+                "FROM patients p " +
+                "JOIN device_assignments da ON da.patient_id = p.patient_id " +
+                "WHERE da.device_id = ? AND da.released_at IS NULL";
+
+        try (Connection conn = DriverManager.getConnection(url, user, password);
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, deviceId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
+                return new ActivePatientInfo(rs.getInt("patient_id"), rs.getString("triage_code"));
+            }
+        }
+    }
 }

@@ -1,5 +1,6 @@
 package it.unipi;
 
+import it.unipi.CoAP.CloudCoapServer;
 import it.unipi.CoAP.PatientAssociationClient;
 import it.unipi.Doctor.DoctorApiServer;
 import it.unipi.MQTT.MQTTThread;
@@ -33,6 +34,7 @@ public class Main {
         final MQTTThread mqttThread;
         final StorageThread storageThread;
         final DoctorApiServer doctorApiServer;
+        final CloudCoapServer cloudCoapServer;
 
         System.out.println("Starting MQTTThread");
         try {
@@ -62,13 +64,12 @@ public class Main {
             return;
         }
 
-        System.out.println("Starting DoctorApiServer");
+        System.out.println("Starting DoctorApiServer + CloudCoapServer");
         try {
             PatientRepository patientRepository = new PatientRepository(DB_CONFIG_PATH);
 
-            // In-memory: thr configuration is not in the database but is
-            // in a static JSON file. every time that the Cloud Application
-            // is rebooted all the nurse information are reseted
+            // In-memory: no DB config to read, only the static nurses
+            // JSON (can still fail if the file is missing/malformed).
             NurseConfig nurseConfig = new NurseConfig(NURSES_CONFIG_PATH);
             NurseAssignmentStore nurseStore = new NurseAssignmentStore();
             NurseAssignmentService nurseAssignmentService =
@@ -79,10 +80,14 @@ public class Main {
             doctorApiServer = new DoctorApiServer(DOCTOR_API_PORT, patientRepository,
                     nurseAssignmentService, patientAssociationClient);
             doctorApiServer.start();
+
+            cloudCoapServer = new CloudCoapServer(patientRepository, nurseStore, nurseConfig);
+            cloudCoapServer.start();
+
         } catch (IOException e) {
             mqttThread.shutdown();
             storageThread.shutdown();
-            System.out.println("DoctorApiServer: Error reading config file");
+            System.out.println("DoctorApiServer/CloudCoapServer: Error reading config file");
             e.printStackTrace();
             System.exit(1);
             return;
@@ -91,19 +96,18 @@ public class Main {
         //Adding the call to shut down the system
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("Shutting down...");
-            if (storageThread != null) {
-                storageThread.shutdown();
-                try {
-                    storageThread.join();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
+            storageThread.shutdown();
+            try {
+                storageThread.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
-            if (mqttThread != null)
-                mqttThread.shutdown();
+            mqttThread.shutdown();
 
-            if (doctorApiServer != null)
-                doctorApiServer.stop();
+            doctorApiServer.stop();
+
+            cloudCoapServer.stop();
+
         }));
     }
 }

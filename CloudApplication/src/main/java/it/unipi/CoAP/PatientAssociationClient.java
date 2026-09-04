@@ -3,12 +3,14 @@ package it.unipi.CoAP;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import it.unipi.Nurse.Nurse;
+import it.unipi.Nurse.TriageCodeMapper;
 import org.eclipse.californium.core.CoapClient;
 import org.eclipse.californium.core.CoapResponse;
 import org.eclipse.californium.core.config.CoapConfig;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.californium.elements.exception.ConnectorException;
 
+import java.io.File;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -23,8 +25,10 @@ public class PatientAssociationClient {
     private static final String RESOURCE_PATH = "/er/patient/association";
 
     static {
-        Configuration.setStandard(Configuration.createStandardWithoutFile());
         CoapConfig.register();
+        File configFile = new File("config/californium.properties");
+        Configuration config = Configuration.createStandardWithFile(configFile);
+        Configuration.setStandard(config);
     }
 
     // TODO: Check
@@ -57,7 +61,7 @@ public class PatientAssociationClient {
         payload.put("SSN", ssn);
         payload.put("NAME", name);
         payload.put("SURNAME", surname);
-        payload.put("TRIAGE_CODE", triageCodeToNumber(triageCode));
+        payload.put("TRIAGE_CODE", TriageCodeMapper.toNumber(triageCode));
         payload.put("RECEPTION_TIMESTAMP", toEpochSeconds(arrivalTime));
         payload.put("LAST_VISIT_TIMESTAMP",
                 lastVisitTime != null ? toEpochSeconds(lastVisitTime) : null);
