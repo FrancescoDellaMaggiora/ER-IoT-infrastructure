@@ -132,12 +132,12 @@ public class MQTTThread extends Thread implements MqttCallback {
 
     @Override
     public void connectionLost(Throwable throwable) {
-
+        // TODO: implement
     }
 
     @Override
     public void deliveryComplete(IMqttDeliveryToken iMqttDeliveryToken) {
-
+        // TODO: implement
     }
 
     /**

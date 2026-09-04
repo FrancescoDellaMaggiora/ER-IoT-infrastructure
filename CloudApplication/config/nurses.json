@@ -1,0 +1,5 @@
+[
+  { "nurseId": "n0-1", "deptId": 0, "coapAddress": "coap://[::1]" },
+  { "nurseId": "n0-2", "deptId": 0, "coapAddress": "coap://[::1]" },
+  { "nurseId": "n1-1", "deptId": 1, "coapAddress": "coap://[::1]" }
+]

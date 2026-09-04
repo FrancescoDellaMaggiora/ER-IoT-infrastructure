@@ -1,7 +1,13 @@
 package it.unipi;
 
+import it.unipi.CoAP.PatientAssociationClient;
+import it.unipi.Doctor.DoctorApiServer;
 import it.unipi.MQTT.MQTTThread;
 import it.unipi.MQTT.Vitals;
+import it.unipi.Nurse.NurseAssignmentService;
+import it.unipi.Nurse.NurseAssignmentStore;
+import it.unipi.Nurse.NurseConfig;
+import it.unipi.Repository.PatientRepository;
 import it.unipi.Storage.StorageThread;
 import org.eclipse.paho.client.mqttv3.MqttException;
 
@@ -10,11 +16,12 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.StreamSupport;
 
-//TIP To <b>Run</b> code, press <shortcut actionId="Run"/> or
-// click the <icon src="AllIcons.Actions.Execute"/> icon in the gutter.
 public class Main {
 
+    private static final int DOCTOR_API_PORT = 7000;
+    private static final String NURSES_CONFIG_PATH = "config/nurses.json";
     private static final String MQTT_CONFIG_PATH = "config/mqtt.properties";
+    private static final String DB_CONFIG_PATH = "config/database.properties";
     private static final String STORAGE_CONFIG_PATH = "config/storage.properties";
 
     private static final int QUEUE_CAPACITY = 1000;
@@ -25,6 +32,7 @@ public class Main {
 
         final MQTTThread mqttThread;
         final StorageThread storageThread;
+        final DoctorApiServer doctorApiServer;
 
         System.out.println("Starting MQTTThread");
         try {
@@ -54,6 +62,32 @@ public class Main {
             return;
         }
 
+        System.out.println("Starting DoctorApiServer");
+        try {
+            PatientRepository patientRepository = new PatientRepository(DB_CONFIG_PATH);
+
+            // In-memory: thr configuration is not in the database but is
+            // in a static JSON file. every time that the Cloud Application
+            // is rebooted all the nurse information are reseted
+            NurseConfig nurseConfig = new NurseConfig(NURSES_CONFIG_PATH);
+            NurseAssignmentStore nurseStore = new NurseAssignmentStore();
+            NurseAssignmentService nurseAssignmentService =
+                    new NurseAssignmentService(nurseConfig, nurseStore);
+
+            PatientAssociationClient patientAssociationClient = new PatientAssociationClient();
+
+            doctorApiServer = new DoctorApiServer(DOCTOR_API_PORT, patientRepository,
+                    nurseAssignmentService, patientAssociationClient);
+            doctorApiServer.start();
+        } catch (IOException e) {
+            mqttThread.shutdown();
+            storageThread.shutdown();
+            System.out.println("DoctorApiServer: Error reading config file");
+            e.printStackTrace();
+            System.exit(1);
+            return;
+        }
+
         //Adding the call to shut down the system
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("Shutting down...");
@@ -67,6 +101,9 @@ public class Main {
             }
             if (mqttThread != null)
                 mqttThread.shutdown();
+
+            if (doctorApiServer != null)
+                doctorApiServer.stop();
         }));
     }
 }
