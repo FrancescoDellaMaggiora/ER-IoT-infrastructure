@@ -24,8 +24,8 @@ public class PatientTriageUpdateClient {
 
     static {
         CoapConfig.register();
-        Configuration config = Configuration.createStandardWithFile(
-                new File("config/californium.properties"));
+        File configFile = new File("config/californium.properties");
+        Configuration config = Configuration.createStandardWithFile(configFile);
         Configuration.setStandard(config);
     }
 

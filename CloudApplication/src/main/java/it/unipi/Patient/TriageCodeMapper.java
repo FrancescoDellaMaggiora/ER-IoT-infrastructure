@@ -30,7 +30,7 @@ public final class TriageCodeMapper {
         return value;
     }
 
-    public static String toString(int triageCode) {
+    public static String toCode(int triageCode) {
 
         return switch (triageCode) {
             case 1 -> "red";

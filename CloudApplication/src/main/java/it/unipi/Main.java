@@ -91,7 +91,10 @@ public class Main {
                     patientTriageUpdateClient, nurseTriageUpdateClient);
             doctorApiServer.start();
 
-            cloudCoapServer = new CloudCoapServer(patientRepository, nurseStore, nurseConfig);
+            cloudCoapServer = new CloudCoapServer(
+                    patientRepository, nurseStore,
+                    nurseConfig,nurseAssignmentService,
+                    nurseTriageUpdateClient);
             cloudCoapServer.start();
 
         } catch (IOException e) {
