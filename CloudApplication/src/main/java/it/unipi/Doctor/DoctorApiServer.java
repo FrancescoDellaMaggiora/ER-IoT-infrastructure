@@ -2,10 +2,7 @@ package it.unipi.Doctor;
 
 import io.javalin.Javalin;
 import io.javalin.http.Context;
-import it.unipi.CoAP.NurseTriageUpdateClient;
-import it.unipi.CoAP.PatientAssociationClient;
-import it.unipi.CoAP.PatientCallClient;
-import it.unipi.CoAP.PatientTriageUpdateClient;
+import it.unipi.CoAP.*;
 import it.unipi.Nurse.Nurse;
 import it.unipi.Nurse.NurseAssignmentService;
 import it.unipi.Repository.PatientRepository;
@@ -37,10 +34,13 @@ public class DoctorApiServer {
     private final PatientRepository patientRepository;
     private final PatientCallClient patientCallClient;
     private final NextPatientSelector nextPatientSelector;
+    private final NurseDischargeClient nurseDischargeClient;
+    private final PatientDischargeClient patientDischargeClient;
     private final NurseAssignmentService nurseAssignmentService;
     private final NurseTriageUpdateClient nurseTriageUpdateClient;
     private final PatientAssociationClient patientAssociationClient;
     private final PatientTriageUpdateClient patientTriageUpdateClient;
+
 
 
     public DoctorApiServer(int port,
@@ -51,7 +51,9 @@ public class DoctorApiServer {
                            DeviceConfig deviceConfig,
                            PatientCallClient patientCallClient,
                            PatientTriageUpdateClient patientTriageUpdateClient,
-                           NurseTriageUpdateClient nurseTriageUpdateClient) {
+                           NurseTriageUpdateClient nurseTriageUpdateClient,
+                           PatientDischargeClient patientDischargeClient,
+                           NurseDischargeClient nurseDischargeClient) {
         this.port = port;
         this.patientRepository = patientRepository;
         this.nurseAssignmentService = nurseAssignmentService;
@@ -61,11 +63,14 @@ public class DoctorApiServer {
         this.patientCallClient = patientCallClient;
         this.patientTriageUpdateClient = patientTriageUpdateClient;
         this.nurseTriageUpdateClient = nurseTriageUpdateClient;
+        this.patientDischargeClient = patientDischargeClient;
+        this.nurseDischargeClient = nurseDischargeClient;
 
         this.app = Javalin.create(config -> {
             config.routes.post("/er/doctor/register", this::handleRegister);
             config.routes.post("/er/doctor/next-patient", this::handleNextPatient);
             config.routes.post("/er/doctor/update-triage", this::handleUpdateTriage);
+            config.routes.post("/er/doctor/discharge", this::handleDischarge);
         });
     }
 
@@ -274,6 +279,73 @@ public class DoctorApiServer {
         }
 
         ctx.status(200).json(new UpdateTriageResponse(patientId, req.getTriageCode()));
+    }
+
+    private void handleDischarge(Context ctx) {
+        DischargeRequest req = ctx.bodyAsClass(DischargeRequest.class);
+
+        if (req.getPatientId() == null) {
+            ctx.status(400).json(new ErrorResponse("Missing id_paziente"));
+            return;
+        }
+
+        int patientId;
+        try {
+            patientId = Integer.parseInt(req.getPatientId());
+        } catch (NumberFormatException e) {
+            ctx.status(400).json(new ErrorResponse("Invalid id_paziente, expected an integer"));
+            return;
+        }
+
+        // Look up nurse and device BEFORE releasing anything - once
+        // released, NurseAssignmentStore no longer knows who the nurse
+        // was, and the device_assignments row is closed.
+        Nurse nurse = nurseAssignmentService.getNurseForPatient(patientId);
+
+        // 1. Close the device assignment in MySQL
+        String deviceId;
+        try {
+            deviceId = patientRepository.releaseActiveDeviceForPatient(patientId);
+        } catch (SQLException e) {
+            ctx.status(500).json(new ErrorResponse("Database error: " + e.getMessage()));
+            return;
+        }
+
+        if (deviceId == null) {
+            ctx.status(404).json(new ErrorResponse(
+                    "Patient " + patientId + " has no active device assignment (unknown or already discharged)"));
+            return;
+        }
+
+        // 2. Release the in-memory nurse load tracking.
+        nurseAssignmentService.releasePatient(patientId);
+
+        // 3. Notify the patient device.
+        String deviceAddress = deviceConfig.getCoapAddress(deviceId);
+        if (deviceAddress != null) {
+            try {
+                patientDischargeClient.notifyDischarged(deviceAddress);
+            } catch (IOException | ConnectorException e) {
+                System.err.println("Warning: patient device " + deviceId
+                        + " was not notified of discharge: " + e.getMessage());
+            }
+        } else {
+            System.err.println("Warning: unknown device address for device " + deviceId);
+        }
+
+        // 4. Notify the nurse device. Same warning-only policy.
+        if (nurse != null) {
+            try {
+                nurseDischargeClient.notifyDischarged(nurse, patientId);
+            } catch (IOException | ConnectorException e) {
+                System.err.println("Warning: nurse " + nurse.getNurseId()
+                        + " was not notified of discharge: " + e.getMessage());
+            }
+        } else {
+            System.err.println("Warning: no nurse on record for patient " + patientId);
+        }
+
+        ctx.status(200).json(new DischargeResponse(patientId, deviceId));
     }
 
 }

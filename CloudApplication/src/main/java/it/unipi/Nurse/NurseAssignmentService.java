@@ -36,4 +36,15 @@ public class NurseAssignmentService {
         }
         return nurseConfig.getById(nurseId);
     }
+
+    /**
+     * Releases the patient from whichever nurse currently has them
+     * (used on discharge). No-op if the patient has no nurse on record.
+     */
+    public void releasePatient(int patientId) {
+        String nurseId = store.getNurseIdForPatient(patientId);
+        if (nurseId != null) {
+            store.release(nurseId, patientId);
+        }
+    }
 }

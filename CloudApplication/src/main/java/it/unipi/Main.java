@@ -84,11 +84,14 @@ public class Main {
             PatientTriageUpdateClient patientTriageUpdateClient = new PatientTriageUpdateClient();
             NurseTriageUpdateClient nurseTriageUpdateClient = new NurseTriageUpdateClient();
             NextPatientSelector nextPatientSelector = new NextPatientSelector(patientRepository);
+            NurseDischargeClient nurseDischargeClient = new NurseDischargeClient();
+            PatientDischargeClient patientDischargeClient = new PatientDischargeClient();
 
             doctorApiServer = new DoctorApiServer(DOCTOR_API_PORT, patientRepository,
                     nurseAssignmentService, patientAssociationClient,
                     nextPatientSelector, deviceConfig, patientCallClient,
-                    patientTriageUpdateClient, nurseTriageUpdateClient);
+                    patientTriageUpdateClient, nurseTriageUpdateClient,
+                    patientDischargeClient, nurseDischargeClient);
             doctorApiServer.start();
 
             cloudCoapServer = new CloudCoapServer(

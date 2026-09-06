@@ -225,4 +225,43 @@ public class PatientRepository {
             return ps.executeUpdate() > 0;
         }
     }
+
+    /**
+     * Discharges a patient: closes their ACTIVE device assignment
+     * (released_at = now). This is the only DB-side signal needed - a
+     * patient with no active device_assignments row is no longer
+     * "active" anywhere else in the schema
+     * Also frees the device_id for reassignment.
+     *
+     * @return the device_id that was released, or null if the patient
+     *         had no active assignment (unknown patient_id, or already
+     *         discharged)
+     */
+    public String releaseActiveDeviceForPatient(int patientId) throws SQLException {
+        String selectSql = "SELECT device_id FROM device_assignments " +
+                "WHERE patient_id = ? AND released_at IS NULL";
+        String updateSql = "UPDATE device_assignments SET released_at = ? " +
+                "WHERE patient_id = ? AND released_at IS NULL";
+
+        try (Connection conn = DriverManager.getConnection(url, user, password)) {
+            String deviceId;
+            try (PreparedStatement ps = conn.prepareStatement(selectSql)) {
+                ps.setInt(1, patientId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        return null;
+                    }
+                    deviceId = rs.getString("device_id");
+                }
+            }
+
+            try (PreparedStatement ps = conn.prepareStatement(updateSql)) {
+                ps.setTimestamp(1, Timestamp.valueOf(LocalDateTime.now()));
+                ps.setInt(2, patientId);
+                ps.executeUpdate();
+            }
+
+            return deviceId;
+        }
+    }
 }
