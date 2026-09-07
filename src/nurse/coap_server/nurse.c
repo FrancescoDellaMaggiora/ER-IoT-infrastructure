@@ -16,6 +16,7 @@ extern coap_resource_t res_association;
 extern coap_resource_t res_assistance;
 extern coap_resource_t res_obs_status;
 extern coap_resource_t res_discharge;
+extern coap_resource_t res_triage_update;
 
 PROCESS(er_server, "Nurse CoAP server");
 AUTOSTART_PROCESSES(&er_server);
@@ -78,6 +79,10 @@ PROCESS_THREAD(er_server, ev, data)
   //  Patien discharge resource
   //  CLOUD -> NURSE
   coap_activate_resource(&res_discharge, "er/patient/discharge");
+
+  //  Patient triage code update resource
+  //  CLOUD -> NURSE
+  coap_activate_resource(&res_triage_update, "er/patient/triage-update");
 
   /* Define application-specific events here. */
   while(1) {

@@ -580,3 +580,110 @@ int parse_discharge_payload(const uint8_t *payload, int *patient_id) {
 
     return 0;
 }
+
+int parse_triage_update_payload(const uint8_t *buffer, int payload_len, int *patient_id, int *triage_code) {
+    char *id_pointer;
+    char *code_pointer;
+    char *end_pointer;
+
+    /*
+     * The buffer must be null-terminated because strstr(), strchr()
+     * and strtol() operate on C strings.
+     */
+    if(buffer == NULL || patient_id == NULL || triage_code == NULL ||
+       payload_len <= 0) {
+        return -1;
+    }
+
+    /* PATIENT_ID */
+    id_pointer = strstr((char *)buffer, "\"PATIENT_ID\"");
+
+    if(id_pointer == NULL) {
+        LOG_ERR("Bad triage update: PATIENT_ID not found\n");
+        return -1;
+    }
+
+    id_pointer = strchr(id_pointer, ':');
+
+    if(id_pointer == NULL) {
+        LOG_ERR("Bad triage update: invalid PATIENT_ID field\n");
+        return -1;
+    }
+
+    id_pointer++;
+
+    while(*id_pointer == ' ' || *id_pointer == '\t' ||
+          *id_pointer == '\n' || *id_pointer == '\r') {
+        id_pointer++;
+    }
+
+    *patient_id = strtol(id_pointer, &end_pointer, 10);
+
+    if(id_pointer == end_pointer) {
+        LOG_ERR("Bad triage update: invalid patient ID\n");
+        return -1;
+    }
+
+    while(*end_pointer == ' ' || *end_pointer == '\t' ||
+          *end_pointer == '\n' || *end_pointer == '\r') {
+        end_pointer++;
+    }
+
+    if(*end_pointer != ',') {
+        LOG_ERR("Bad triage update: expected ',' after PATIENT_ID\n");
+        return -1;
+    }
+
+    /* TRIAGE_CODE */
+    code_pointer = strstr(end_pointer, "\"TRIAGE_CODE\"");
+
+    if(code_pointer == NULL) {
+        LOG_ERR("Bad triage update: TRIAGE_CODE not found\n");
+        return -1;
+    }
+
+    code_pointer = strchr(code_pointer, ':');
+
+    if(code_pointer == NULL) {
+        LOG_ERR("Bad triage update: invalid TRIAGE_CODE field\n");
+        return -1;
+    }
+
+    code_pointer++;
+
+    while(*code_pointer == ' ' || *code_pointer == '\t' ||
+          *code_pointer == '\n' || *code_pointer == '\r') {
+        code_pointer++;
+    }
+
+    *triage_code = strtol(code_pointer, &end_pointer, 10);
+
+    if(code_pointer == end_pointer) {
+        LOG_ERR("Bad triage update: invalid triage code\n");
+        return -1;
+    }
+
+    while(*end_pointer == ' ' || *end_pointer == '\t' ||
+          *end_pointer == '\n' || *end_pointer == '\r') {
+        end_pointer++;
+    }
+
+    if(*end_pointer != '}') {
+        LOG_ERR("Bad triage update: expected '}' after TRIAGE_CODE\n");
+        return -1;
+    }
+
+    end_pointer++;
+
+    while(*end_pointer == ' ' || *end_pointer == '\t' ||
+          *end_pointer == '\n' || *end_pointer == '\r') {
+        end_pointer++;
+    }
+
+    if(*end_pointer != '\0') {
+        LOG_ERR("Bad triage update: invalid data after JSON body\n");
+        return -1;
+    }
+
+    return 0;
+}

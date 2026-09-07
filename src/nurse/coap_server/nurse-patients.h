@@ -160,6 +160,9 @@ typedef struct {
     //  Remove a patient (if not already absent)
     int remove_patient(int);
 
+    //  Update the triage code of an already associated patient
+    int update_patient_triage(int, int);
+
 //  PATIENT ASSOCIATION FUNCTIONS END
 /*---------------------------------------------------------------------------*/
 
@@ -179,6 +182,7 @@ typedef struct {
 
 //  REQUEST FUNCTIONS END
 /*---------------------------------------------------------------------------*/
+
 
 
 

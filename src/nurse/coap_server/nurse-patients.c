@@ -362,6 +362,38 @@ int remove_patient(int patient_id) {
     return RESULT_SUCCESS;
 }
 
+//  Update the triage code of an already associated patient.
+//  Deliberately does NOT insert an unknown patient: a triage update for
+//  someone this nurse was never told about means the cloud and this
+//  device disagree on the assignment, and silently creating a record
+//  would hide that inconsistency.
+int update_patient_triage(int patient_id, int triage_code) {
+
+    patient_data_t *patient;
+
+    //  Patient IDs must be positive and the code must be a valid triage code
+    if(patient_id <= 0 || triage_code < CODE_RED || triage_code > CODE_WHITE) {
+        return RESULT_INVALID_INPUT;
+    }
+
+    if(!patient_associated(patient_id)) {
+        return RESULT_PATIENT_NOT_ASSOCIATED;
+    }
+
+    patient = get_patient_pointer(patient_id);
+
+    if(patient == NULL) {
+        return RESULT_PATIENT_NOT_ASSOCIATED;
+    }
+
+    //  Not an error if it is already that value: the cloud re-sends the
+    //  current code on a retry, and a doctor may "change" it to what it
+    //  already was.
+    patient->triage_code = (triage_code_t)triage_code;
+
+    return RESULT_SUCCESS;
+}
+
 //  PATIENT ASSOCIATION FUNCTIONS END
 /*---------------------------------------------------------------------------*/
 
