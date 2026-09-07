@@ -70,7 +70,7 @@ static struct etimer et;
 /*---------------------------------------------------------------------------*/
 //  UTILITY FUNCTIONS
 
-    //  Extract the target patient id and the request status from the observable resource notification
+    //  Extract the target patient id, the triage code and the nurse address from the response
     int parse_registration(const char *payload, int payload_len, long *patient_id, triage_code_t *triage_code, coap_endpoint_t *nurse_address) {
 
         const char *id_key = "\"PATIENT_ID\":";
