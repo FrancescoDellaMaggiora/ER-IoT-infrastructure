@@ -63,6 +63,7 @@ Patient node - application logic
 #include "patient.h"
 #include "mqtt-service.h"
 #include "vitals-buffer.h"
+#include "triage-report.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -145,6 +146,12 @@ static patient_vitals_t current_vitals;
 // Input for the AI model
 static float model_input[VITALS_WINDOW * VITALS_FEATURES];
 
+/*
+ * The triage code currently in force on this node.
+ */
+static uint8_t current_triage_code = 0;   /* 0 = not known yet */
+
+static long db_patient_id = 0;            /* 0 = bootstrap not done yet */
 
 /*---------------------------------------------------------------------------*/
 PROCESS(patient_process, "Patient node");
@@ -363,6 +370,33 @@ patient_measurement_cycle(void)
       active_alerts &= ~ALERT_RESPIRATION_RATE;
     }
   }
+
+  if(vitals_buffer_is_full() && vitals_buffer_export(model_input)) {
+ 
+    /* TODO: run the model on model_input and put the predicted code
+     * (1-5) in predicted_code. Until then this block does nothing. */
+    uint8_t predicted_code = 0;
+ 
+    /* Report ONLY on an actual change. Without this guard the node
+     * would PUT to the Cloud on every measurement cycle, which for a
+     * stable patient is pure traffic - and would defeat the whole
+     * point during the congestion stress test. */
+    if(predicted_code != 0 && predicted_code != current_triage_code) {
+ 
+      LOG_INFO("Model changed triage code: %u -> %u\n",
+               current_triage_code, predicted_code);
+ 
+      current_triage_code = predicted_code;
+ 
+      /* Then tell the Cloud. This RETURNS IMMEDIATELY - the CoAP
+       * exchange completes in the background and its result is logged
+       * by the module's callback. The measurement cycle is never
+       * delayed by the network, which matters most precisely when the
+       * network is congested. A failure is not fatal: the Cloud keeps
+       * receiving the vitals, and the next change is reported again. */
+      triage_report_send(db_patient_id, predicted_code);
+    }
+
 }
 /*---------------------------------------------------------------------------*/
 /* SenML payload construction                                                */
@@ -628,6 +662,8 @@ PROCESS_THREAD(patient_process, ev, data)
 
   printf("Patient node process (PATIENT_ID=%d)\n", PATIENT_ID);
   vitals_buffer_init();
+  triage_report_init();
+
 
   /* Build our identifiers. A failure here is fatal: identifiers are
    * static strings, if they don't fit the buffers there is nothing we
