@@ -532,8 +532,8 @@ int parse_association_payload(const uint8_t *buffer, int payload_len, int *patie
     return 0;
 }
 
-//  Extract the patient ID from a dissociation request
-int parse_dissociation_payload(const uint8_t *payload, int *patient_id) {
+//  Extract the patient ID from a discharge request
+int parse_discharge_payload(const uint8_t *payload, int *patient_id) {
 
     const char *key = "\"PATIENT_ID\":";
     const char *start;
