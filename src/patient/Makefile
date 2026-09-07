@@ -16,7 +16,7 @@ PROJECT_SOURCEFILES += mqtt-service.c
 
 # Patient ID, passed through command line:
 # make TARGET=cooja PATIENT_ID=1
-PATIENT_ID ?= 0
+PATIENT_ID ?= 1
 CFLAGS += -DPATIENT_ID=$(PATIENT_ID)
 
 include $(CONTIKI)/Makefile.include
