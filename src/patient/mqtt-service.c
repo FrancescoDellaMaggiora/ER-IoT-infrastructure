@@ -145,6 +145,10 @@ static struct process *app_process;
 /* Client id, provided (and kept alive) by the application */
 static char *client_id;
 
+//  ALE:
+//  This variable is used to stop the service in case of a discharge request
+static bool service_stopped;
+
 /* Application callbacks (see mqtt-service.h) */
 static mqtt_service_connected_cb_t connected_cb;
 static mqtt_service_publish_slot_cb_t publish_slot_cb;
@@ -194,6 +198,11 @@ have_connectivity(void)
 static void
 mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
 {
+  //  In case of a discharge request this function returns immediately
+  if(service_stopped) {
+    return;
+  }
+
   switch(event) {
   case MQTT_EVENT_CONNECTED: {
     LOG_DBG("Application has a MQTT connection\n");
@@ -429,6 +438,9 @@ mqtt_service_init(struct process *process, char *id,
   publish_slot_cb = on_publish_slot;
   incoming_cb = on_incoming;
 
+  //  Variable used in case of a discharge request
+  service_stopped = false;
+
   state = STATE_INIT;
 
   /* Kick the state machine as soon as the process starts its loop.
@@ -440,6 +452,11 @@ mqtt_service_init(struct process *process, char *id,
 bool
 mqtt_service_handle_event(process_event_t ev, process_data_t data)
 {
+  //  In case of a discharge request this function returns immediately
+  if(service_stopped) {
+    return true;
+  }
+
   /* Our periodic timer, or a poll requested on disconnection */
   if((ev == PROCESS_EVENT_TIMER && data == &fsm_timer) ||
      ev == PROCESS_EVENT_POLL) {
@@ -489,4 +506,24 @@ mqtt_service_recover(void)
     state_machine();
   }
 }
+
+//  This function is used to handle the discharge resource. Its aim is to stop all MQTT activity.
+void mqtt_service_stop() {
+
+    LOG_INFO("Ending MQTT service\n");
+
+    //  Service needs to be stopped
+    service_stopped = true;
+
+    //  Stop all timers
+    etimer_stop(&fsm_timer);
+    ctimer_stop(&led_timer);
+
+    //  Disconnect from the broker
+    if(mqtt_ready(&conn)) {
+        mqtt_disconnect(&conn);
+    }
+
+}
+
 /*---------------------------------------------------------------------------*/
