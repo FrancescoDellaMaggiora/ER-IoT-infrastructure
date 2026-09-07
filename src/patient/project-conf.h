@@ -35,11 +35,12 @@
 /* Enable TCP: MQTT runs over TCP, which Contiki-NG disables by default */
 #define UIP_CONF_TCP 1
 
-/* Debug logging for the network stack */
+/* Debug logging for the network stack 
 #define IPV6_CONF_LOGGING 1
 #define LOG_CONF_LEVEL_IPV6 LOG_LEVEL_DBG
 #define LOG_CONF_LEVEL_6LOWPAN LOG_LEVEL_DBG
 #define LOG_CONF_LEVEL_TCPIP LOG_LEVEL_DBG
+*/
 
 /*
  * The IPv6 address of the MQTT broker to connect to.

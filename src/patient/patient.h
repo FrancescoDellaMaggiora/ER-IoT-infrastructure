@@ -98,6 +98,7 @@
 #define SENSOR_TEMPERATURE        (1 << 2)  //  Cel
 #define SENSOR_PRESSURE_SYSTOLIC  (1 << 3)  //  mmHg
 #define SENSOR_PRESSURE_DIASTOLIC (1 << 4)  //  mmHg
+#define SENSOR_RESPIRATION_RATE   (1 << 5)  //  respiration/min
 
 //  These macros are bitmasks used to identify current alert parameters
 //  (using the "active_alerts" variable).
@@ -107,6 +108,7 @@
 #define ALERT_TEMPERATURE         (1 << 2)
 #define ALERT_PRESSURE_SYSTOLIC   (1 << 3)
 #define ALERT_PRESSURE_DIASTOLIC  (1 << 4)
+#define ALERT_RESPIRATION_RATE    (1 << 5)
 
 //  These macros define thresholds for each measured parameter.
 //  They implement the "Level 1" fixed clinical safety net discussed in
@@ -128,9 +130,20 @@
 #define MIN_PRESSURE_DIASTOLIC  60
 #define MAX_PRESSURE_DIASTOLIC  90
 
+#define MIN_RESPIRATION_RATE    12
+#define MAX_RESPIRATION_RATE    20
+
 /*---------------------------------------------------------------------------*/
 
-//  ALESSANDRO: I wrote this code
+#define SIM_HR    0
+#define SIM_SPO2  1
+#define SIM_TEMP  2
+#define SIM_SBP   3
+#define SIM_DBP   4
+#define SIM_RR    5
+
+#define SIM_PARAM_COUNT 6
+
 
 /*
  * Data structure declaration to store patient vitals
@@ -142,9 +155,30 @@ typedef struct {
   float temperature;
   uint16_t pressure_systolic;
   uint16_t pressure_diastolic;
+  uint16_t respiration_rate;
 
 } patient_vitals_t;
 
+/*
+ * Data structure for memorize the Simulation Parameters 
+ */
+
+typedef struct {
+  float baseline,
+  float noise_amp,
+  float pull_pct
+} simulation_parameters_t;
+
+
+const simulation_parameters_t SIMULATION_VALUES[SIM_PARAM_COUNT] = {
+  /* baseline, noise_amp, pull_pct */
+  {  72.0f,      3.3f,      1.3f },   /* SIM_HR   */
+  {  98.0f,      0.5f,      1.2f },   /* SIM_SPO2 */
+  {  36.0f,      0.3f,      0.3f },   /* SIM_TEMP */
+  { 115.0f,      6.9f,      0.6f },   /* SIM_SBP  */
+  {  61.0f,      6.3f,      1.1f },   /* SIM_DBP  */
+  {  14.0f,      0.5f,      0.3f },   /* SIM_RR   */
+};
 /*---------------------------------------------------------------------------*/
 #endif /* PATIENT_H_ */
 /*---------------------------------------------------------------------------*/

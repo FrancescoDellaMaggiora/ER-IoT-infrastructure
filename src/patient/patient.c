@@ -62,6 +62,7 @@ Patient node - application logic
 
 #include "patient.h"
 #include "mqtt-service.h"
+#include "vitals-buffer.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -128,8 +129,11 @@ static uint16_t seq_nr_value = 0;
 //  This variable indicates which sensors are attached to the patient using
 //  the SENSOR macros (in this case the heart rate, spo2 and temperature are
 //  measured)
-static uint8_t attached_sensors = SENSOR_HEART_RATE | SENSOR_SPO2 |
-                                  SENSOR_TEMPERATURE;
+static uint8_t attached_sensors =
+  SENSOR_HEART_RATE | SENSOR_SPO2 | SENSOR_TEMPERATURE |
+  SENSOR_PRESSURE_SYSTOLIC | SENSOR_PRESSURE_DIASTOLIC |
+  SENSOR_RESPIRATION_RATE;
+
 
 //  This variabile indicates which alert conditions are currently active
 //  using the ALERT macros
@@ -137,6 +141,10 @@ static uint8_t active_alerts = 0;
 
 //  Data structure holding current patient vitals
 static patient_vitals_t current_vitals;
+
+// Input for the AI model
+static float model_input[VITALS_WINDOW * VITALS_FEATURES];
+
 
 /*---------------------------------------------------------------------------*/
 PROCESS(patient_process, "Patient node");
@@ -221,29 +229,55 @@ construct_client_id(void)
 /* Vitals simulation                                                         */
 /*---------------------------------------------------------------------------*/
 
-//  ALESSANDRO: I wrote this code
-//  Initialize patient's vitals to pre-determined values (this is temporary)
-//  TODO: Write a better vitals initialization function (patient.c)
+//  Initialize patient's vitals to pre-determined values
 static void
 patient_vitals_init(void)
 {
-  current_vitals.heart_rate = 70;
+  current_vitals.heart_rate = 72; 
   current_vitals.spo2 = 98;
-  current_vitals.temperature = 36.5f;
-  current_vitals.pressure_systolic = 120;
-  current_vitals.pressure_diastolic = 80;
+  current_vitals.temperature = 36.0f;
+  current_vitals.pressure_systolic = 115;
+  current_vitals.pressure_diastolic = 61;
+  current_vitals.respiration_rate = 14;
 
   active_alerts = 0;
 }
 /*---------------------------------------------------------------------------*/
-//  ALESSANDRO: this support function is used to randomly variate vitals.
-static int
-random_variation(void)
+/*
+  This support function is used to randomly variate vitals.
+  To do this, we use the same approch suggested in:
+
+  Real-time prediction of trauma-induced coagulopathy using an inverted transformer
+  (trauma-former): a methodological feasibility and simulation study based on the ADEMP
+  framework 
+
+  The formula is the following:
+
+  value_next = current + pull_pct * (baseline - value) + noise
+  
+  Where:
+  - current is the current value
+  - pull_pct rappresent "how fast" the value will be return to the baseline
+  - noise Random noise
+*/
+static float random_variation(
+      float current,
+      simulation_parameters_t par)
 {
-  return (rand() % 5) - 2;
+  float deviation = par.baseline - current;
+  float pull = deviation * par.pull_pct / 100.0f;
+ 
+  /* Uniform in [-noise_amp, +noise_amp]. Done in floating point: the
+   * integer version could not represent noise_amp values below 1
+   * (temperature moves by hundredths of a degree per reading). */
+  float unit = (float)rand() / (float)RAND_MAX;          /* [0, 1] */
+  float noise = (unit * 2.0f - 1.0f) * par.noise_amp;    /* [-amp, +amp] */
+ 
+  return current + pull + noise;
 }
+
 /*---------------------------------------------------------------------------*/
-//  ALESSANDRO: This function reads sensor data and implements the alert
+//  This function reads sensor data and implements the alert
 //  detection logic. Specifically what it does is to raise an alert (by
 //  appropriately modifying active_alerts) if the corresponding values are
 //  out of scale (MIN and MAX macros are used for this).
@@ -258,7 +292,7 @@ patient_measurement_cycle(void)
   //  Read vitals
   if(attached_sensors & SENSOR_HEART_RATE) {
 
-    current_vitals.heart_rate += random_variation();
+    current_vitals.heart_rate = (int16_t)random_variation(current_vitals.heart_rate, SIMULATION_VALUES[0])
 
     if(current_vitals.heart_rate < MIN_HEART_RATE ||
        current_vitals.heart_rate > MAX_HEART_RATE) {
@@ -270,7 +304,9 @@ patient_measurement_cycle(void)
 
   if(attached_sensors & SENSOR_SPO2) {
 
-    current_vitals.spo2 += random_variation();
+    current_vitals.spo2 = (int8_t)random_variation(current_vitals.spo2, SIMULATION_VALUES[1]);
+    if(current_vitals.spo2 > 100.0f) { current_vitals.spo2 = 100.0f; }
+    if(current_vitals.spo2 < 0.0f)   { current_vitals.spo2 = 0.0f; }
 
     if(current_vitals.spo2 < MIN_SPO2 || current_vitals.spo2 > MAX_SPO2) {
       active_alerts |= ALERT_SPO2;
@@ -282,7 +318,7 @@ patient_measurement_cycle(void)
   if(attached_sensors & SENSOR_TEMPERATURE) {
 
     //  Varies slower than other parameters to be more realistic
-    current_vitals.temperature += random_variation() * 0.1f;
+    current_vitals.temperature = random_variation(current_vitals.temperature, SIMULATION_VALUES[2]);
 
     if(current_vitals.temperature < MIN_TEMPERATURE ||
        current_vitals.temperature > MAX_TEMPERATURE) {
@@ -294,7 +330,7 @@ patient_measurement_cycle(void)
 
   if(attached_sensors & SENSOR_PRESSURE_SYSTOLIC) {
 
-    current_vitals.pressure_systolic += random_variation();
+    current_vitals.pressure_systolic = (int16_t)random_variation(current_vitals.pressure_systolic, SIMULATION_VALUES[3]);
 
     if(current_vitals.pressure_systolic < MIN_PRESSURE_SYSTOLIC ||
        current_vitals.pressure_systolic > MAX_PRESSURE_SYSTOLIC) {
@@ -306,13 +342,25 @@ patient_measurement_cycle(void)
 
   if(attached_sensors & SENSOR_PRESSURE_DIASTOLIC) {
 
-    current_vitals.pressure_diastolic += random_variation();
+    current_vitals.pressure_diastolic = (int16_t)random_variation(current_vitals.pressure_diastolic, SIMULATION_VALUES[4]);
 
     if(current_vitals.pressure_diastolic < MIN_PRESSURE_DIASTOLIC ||
        current_vitals.pressure_diastolic > MAX_PRESSURE_DIASTOLIC) {
       active_alerts |= ALERT_PRESSURE_DIASTOLIC;
     } else {
       active_alerts &= ~ALERT_PRESSURE_DIASTOLIC;
+    }
+  }
+
+  if(attached_sensors & ALERT_RESPIRATION_RATE) {
+
+    current_vitals.respiration_rate = (int16_t)random_variation(current_vitals.respiration_rate, SIMULATION_VALUES[5]);
+
+    if(current_vitals.respiration_rate < MIN_RESPIRATION_RATE ||
+       current_vitals.respiration_rate > MAX_RESPIRATION_RATE) {
+      active_alerts |= ALERT_RESPIRATION_RATE;
+    } else {
+      active_alerts &= ~ALERT_RESPIRATION_RATE;
     }
   }
 }
@@ -435,6 +483,10 @@ build_payload_vitals(char *buffer, int buffer_size)
     senml_add_int(&b, "dia-pressure", "mmHg",
                   current_vitals.pressure_diastolic);
   }
+  if(attached_sensors & SENSOR_RESPIRATION_RATE) {
+    senml_add_int(&b, "respiration_rate", "respiration/min",
+                  current_vitals.respiration_rate);
+  }
 
   return senml_end(&b, "build_payload_vitals()");
 }
@@ -465,6 +517,10 @@ build_payload_alert(char *buffer, int buffer_size)
   if(active_alerts & ALERT_PRESSURE_DIASTOLIC) {
     senml_add_int(&b, "dia-pressure-alert", "mmHg",
                   current_vitals.pressure_diastolic);
+  }
+  if(attached_sensors & ALERT_RESPIRATION_RATE) {
+    senml_add_int(&b, "respiration_rate", "respiration/min",
+                  current_vitals.respiration_rate);
   }
 
   return senml_end(&b, "build_payload_alert()");
@@ -550,6 +606,7 @@ on_publish_slot(void)
     publish(TOPIC_MSG_ALERT);
   }
 
+  vitals_buffer_push(&current_vitals);
   //  In case of alert publish every second instead of every 30 seconds
   return active_alerts ? ALERT_PUBLISH_INTERVAL : DEFAULT_PUBLISH_INTERVAL;
 }
@@ -570,6 +627,7 @@ PROCESS_THREAD(patient_process, ev, data)
   PROCESS_BEGIN();
 
   printf("Patient node process (PATIENT_ID=%d)\n", PATIENT_ID);
+  vitals_buffer_init();
 
   /* Build our identifiers. A failure here is fatal: identifiers are
    * static strings, if they don't fit the buffers there is nothing we
@@ -595,11 +653,13 @@ PROCESS_THREAD(patient_process, ev, data)
   while(1) {
 
     PROCESS_YIELD();
-
+    
     /* Timers/polls belonging to the MQTT service */
     if(mqtt_service_handle_event(ev, data)) {
       continue;
     }
+
+    
 
     if(ev == button_hal_release_event &&
        ((button_hal_button_t *)data)->unique_id == BUTTON_HAL_ID_BUTTON_ZERO) {
