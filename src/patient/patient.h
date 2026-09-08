@@ -44,15 +44,17 @@
 #define PATIENT_H_
 /*---------------------------------------------------------------------------*/
 #include <stdint.h>
+#include "coap-engine.h"
 /*---------------------------------------------------------------------------*/
 
-//  ALESSANDRO: I wrote this code
-//  PATIENT_ID (default is 0) used to construct the MQTT CLIENT_ID.
-//  It is learnt at build time:
-//    make TARGET=<target> PATIENT_ID=<number>
+/*
+ *  DEVICE_ID (default is 0) used to construct the MQTT CLIENT_ID.
+ *  It is learnt at build time:
+ *    make TARGET=<target> DEVICE_ID=<number>
+ */
 
-#ifndef PATIENT_ID
-#define PATIENT_ID 1
+#ifndef DEVICE_ID
+#define DEVICE_ID 0
 #endif
 
 /*---------------------------------------------------------------------------*/
@@ -164,22 +166,13 @@ typedef struct {
  */
 
 typedef struct {
-  float baseline,
-  float noise_amp,
-  float pull_pct
+  float baseline;
+  float noise_amp;
+  float pull_pct;
 } simulation_parameters_t;
 
 
-const simulation_parameters_t SIMULATION_VALUES[SIM_PARAM_COUNT] = {
-  /* baseline, noise_amp, pull_pct */
-  {  72.0f,      3.3f,      1.3f },   /* SIM_HR   */
-  {  98.0f,      0.5f,      1.2f },   /* SIM_SPO2 */
-  {  36.0f,      0.3f,      0.3f },   /* SIM_TEMP */
-  { 115.0f,      6.9f,      0.6f },   /* SIM_SBP  */
-  {  61.0f,      6.3f,      1.1f },   /* SIM_DBP  */
-  {  14.0f,      0.5f,      0.3f },   /* SIM_RR   */
-};
-
+extern const simulation_parameters_t SIMULATION_VALUES[SIM_PARAM_COUNT];
 
 /*Device and triage*/
 

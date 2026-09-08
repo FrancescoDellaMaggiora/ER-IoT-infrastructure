@@ -23,7 +23,7 @@ MODULES_REL += arch/platform/$(TARGET)
 PROJECT_SOURCEFILES += mqtt-service.c
 PROJECT_SOURCEFILES += vitals-buffer.c
 PROJECT_SOURCEFILES += triage-report.c
-PROJECT_SOURCEFILES += triage-model.c
+PROJECT_SOURCEFILES += triage_model.c
 
 
 # Device ID, passed through command line:

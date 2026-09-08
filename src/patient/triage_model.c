@@ -22,17 +22,6 @@
 #define LOG_LEVEL LOG_LEVEL_INFO
 #endif
 /*---------------------------------------------------------------------------*/
-/*
- * Standardization constants, printed by the deployment cell of the
- * notebook FOR THE DEPLOYED WINDOW SIZE. They are not interchangeable
- * between window sizes.
- *
- * TODO: paste the two arrays printed by the notebook over these
- * placeholders. Leaving the placeholders in place produces confident
- * but meaningless predictions - there is no runtime error to warn you.
- */
-#define ML_WINDOW   20
-#define ML_N_INPUTS 30
 
 static const float FEATURE_MEAN[ML_N_INPUTS] = {
   74.387909f, 1.324344f, 72.650040f, 76.525810f, 0.000353f, 109.649620f, 2.409699f, 105.997200f, 113.496552f, 0.003130f, 59.236668f, 1.751063f, 56.425270f, 61.812954f, 0.001647f, 13.674246f, 0.078965f, 13.565016f, 13.785368f, 0.000347f, 96.314041f, 0.109620f, 96.241760f, 96.357643f, -0.000546f, 33.501007f, 0.018429f, 33.469517f, 33.528313f, 0.000139f

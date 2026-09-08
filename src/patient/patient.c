@@ -29,7 +29,7 @@ Patient node - application logic
 #include "os/sys/log.h"
 
 #include "patient.h"
-#include "triage-model.h"
+#include "triage_model.h"
 #include "mqtt-service.h"
 #include "coap-engine.h"
 #include "vitals-buffer.h"
@@ -77,6 +77,10 @@ Patient node - application logic
 #define URI_SIZE 64
 static char REGISTRATION_URI[URI_SIZE];
 
+/*
+ * URI for ask assistance to a nurse 
+ */
+#define ASSISTANCE_URI "/er/patient/assistance"
 /*---------------------------------------------------------------------------*/
 /*
  * Buffers for Client ID and Topics.
@@ -147,13 +151,6 @@ static device_data_t patient_info;
  */ 
 static float model_input[VITALS_WINDOW * VITALS_FEATURES];
 
-/*
- * The triage code currently in force on this node.
- */
-static uint8_t current_triage_code = 0;   /* 0 = not known yet */
-
-static long db_patient_id = 0;            /* 0 = bootstrap not done yet */
-
 /*---------------------------------------------------------------------------*/
 /*
  *  Discharge resource
@@ -169,6 +166,20 @@ static coap_endpoint_t server_addr;
  * Nurse CoAP endpoint
  */
 static coap_endpoint_t nurse_addr;
+
+
+/*
+ * Simulation Parameters
+ */
+const simulation_parameters_t SIMULATION_VALUES[SIM_PARAM_COUNT] = {
+  /* baseline, noise_amp, pull_pct */
+  {  72.0f,      3.3f,      1.3f },   /* SIM_HR   */
+  {  98.0f,      0.5f,      1.2f },   /* SIM_SPO2 */
+  {  36.0f,      0.3f,      0.3f },   /* SIM_TEMP */
+  { 115.0f,      6.9f,      0.6f },   /* SIM_SBP  */
+  {  61.0f,      6.3f,      1.1f },   /* SIM_DBP  */
+  {  14.0f,      0.5f,      0.3f },   /* SIM_RR   */
+};
 
 
 /*---------------------------------------------------------------------------*/
@@ -397,16 +408,16 @@ static void patient_measurement_cycle(void)
    * the inference below runs on a window that includes it. */
   vitals_buffer_push(&current_vitals);
 
-  if(vitals_buffer_is_full() && vitals_buffer_export(model_input)) {
- 
-    /* 0 until the window fills up (VITALS_WINDOW measurement cycles
+  /* 0 until the window fills up (VITALS_WINDOW measurement cycles
     * after boot), and on inference failure. */
-    uint8_t predicted_code = triage_model_predict();
-  
+  uint8_t predicted_code = triage_model_predict();
+
+  if(predicted_code != 0 && predicted_code != patient_info.triage_code) {
+ 
     if(predicted_code != 0 && predicted_code != patient_info.triage_code) {
  
       LOG_INFO("Model changed triage code: %u -> %u\n",
-             current_triage_code, predicted_code);
+             patient_info.triage_code, predicted_code);
  
       patient_info.triage_code = predicted_code;
   
@@ -850,6 +861,7 @@ PROCESS_THREAD(patient_process, ev, data)
   snprintf(REGISTRATION_URI, sizeof(REGISTRATION_URI), "/er/patient/registration/%i", DEVICE_ID);
 
   static coap_message_t request[1];      /* This way the packet can be treated as pointer as usual. */
+  static coap_message_t request_for_nurse[1]; 
 
   coap_endpoint_parse(SERVER_ADDR, strlen(SERVER_ADDR), &server_addr);
 
@@ -938,13 +950,28 @@ PROCESS_THREAD(patient_process, ev, data)
 
     if(ev == button_hal_release_event &&
        ((button_hal_button_t *)data)->unique_id == BUTTON_HAL_ID_BUTTON_ZERO) {
-      /* For now, when you press a button you recover the MQTT connecton.
-       *
-       * TODO: this same button will implement the assistance request
-       * once the CoAP side of the node is added; the two
-       * behaviours will need to be distinguished (e.g. by press
-       * duration or by connection state). */
-      mqtt_service_recover();
+      
+        //When press the button, ask for help to a nurse<
+        printf("--Button pressed--\n");
+
+        /* prepare request, TID is set by COAP_BLOCKING_REQUEST() */
+        coap_init_message(request_for_nurse, COAP_TYPE_CON, COAP_POST, 0);
+        coap_set_header_uri_path(request_for_nurse, ASSISTANCE_URI);
+        coap_set_header_content_format(request_for_nurse, APPLICATION_JSON);
+
+        //  Build JSON payload
+        char msg[40];
+        snprintf(msg, sizeof(msg), "{\"PATIENT_ID\":%li,\"TIMESTAMP\":%i}", patient_info.patient_id, now());
+
+        coap_set_payload(request_for_nurse, (uint8_t *)msg, strlen(msg));
+
+        LOG_INFO_COAP_EP(&server_addr);
+        LOG_INFO_("\n");
+
+        COAP_BLOCKING_REQUEST(&server_addr, request, client_chunk_handler);
+
+        printf("\n--Request sent--\n");
+
     }
 
   }
