@@ -148,9 +148,9 @@ static patient_vitals_t current_vitals;
 process_event_t discharge_event;
 
 /*
- * Device information
+ * Device and patient information
  */
-static device_data_t patient_info;
+device_data_t patient_info;
 
 /*---------------------------------------------------------------------------*/
 /*
@@ -163,7 +163,7 @@ static device_data_t patient_info;
  *  Discharge resource
  */
 extern coap_resource_t res_discharge;
-
+extern coap_resource_t res_triage;
 /*
  * Cloud Application CoAP endpoint
  */
@@ -956,7 +956,6 @@ PROCESS_THREAD(patient_process, ev, data)
       printf("\n--Registration request sent--\n");
     }
   }
-
   //  This event is needed by the discharge resource to interrupt all MQTT and COAP communication
   discharge_event = process_alloc_event();
 
@@ -980,6 +979,12 @@ PROCESS_THREAD(patient_process, ev, data)
    *  CLOUD -> DEVICE
    */
   coap_activate_resource(&res_discharge, "er/patient/discharge");
+
+  /*
+   *  Doctor change the triage code
+   *  CLOUD -> DEVICE
+   */
+  coap_activate_resource(&res_triage, "er/patient/triage");
 
   /*
    * Populate patient's vitals with default values
