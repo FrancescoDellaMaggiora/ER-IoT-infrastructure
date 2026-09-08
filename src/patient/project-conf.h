@@ -53,6 +53,9 @@
 #define MQTT_CLIENT_CONF_BROKER_IP_ADDR "fd00:1::1"
 
 #define TRIAGE_REPORT_CONF_CLOUD_EP "coap://[fd00:1::1]"
+
+
+#define REST_MAX_CHUNK_SIZE 256
 /*---------------------------------------------------------------------------*/
 #endif /* PROJECT_CONF_H_ */
 /*---------------------------------------------------------------------------*/
