@@ -215,8 +215,8 @@ static int construct_pub_topic(void)
   int len;
 
   //  Fill vitals_topic
-  len = snprintf(vitals_topic, BUFFER_SIZE, "%s/%d/%s", PUB_TOPIC_NAME,
-                 PATIENT_ID, PATIENT_VITALS);
+  len = snprintf(vitals_topic, BUFFER_SIZE, "%s/%ld/%s", PUB_TOPIC_NAME,
+                 patient_info.patient_id, PATIENT_VITALS);
 
   /* len < 0: Error. Len >= BUFFER_SIZE: Buffer too small */
   if(len < 0 || len >= BUFFER_SIZE) {
@@ -226,8 +226,8 @@ static int construct_pub_topic(void)
   }
 
   //  Fill alert_topic
-  len = snprintf(alert_topic, BUFFER_SIZE, "%s/%d/%s", PUB_TOPIC_NAME,
-                 PATIENT_ID, PATIENT_ALERT);
+  len = snprintf(alert_topic, BUFFER_SIZE, "%s/%ld/%s", PUB_TOPIC_NAME,
+                 patient_info.patient_id, PATIENT_ALERT);
 
   /* len < 0: Error. Len >= BUFFER_SIZE: Buffer too small */
   if(len < 0 || len >= BUFFER_SIZE) {
@@ -250,7 +250,7 @@ static int construct_pub_topic(void)
   static int construct_sub_topic(void) {
 
     int len = snprintf(sub_topic, BUFFER_SIZE, "%s/%d/cmd", PUB_TOPIC_NAME,
-                      PATIENT_ID);
+                      patient_info.patient_id);
 
     /* len < 0: Error. Len >= BUFFER_SIZE: Buffer too small */
     if(len < 0 || len >= BUFFER_SIZE) {
@@ -862,6 +862,9 @@ void print_patient_info() {
 // RESOURCE HANDLING FUNCTIONS
 /*---------------------------------------------------------------------------*/
 
+static struct etimer et;
+static int flagRegistration = 0;
+
 /*
  *  This function is will be passed to COAP_BLOCKING_REQUEST() to handle responses
  */
@@ -894,9 +897,11 @@ void client_chunk_handler(coap_message_t *response) {
   if(parse_registration(payload, len, &patient_info.patient_id, &patient_info.triage_code, &nurse_addr) == 0) {
     printf("Device successfully registered\n");
     print_patient_info();
-  
+    flagRegistration = 1;
+
   } else {
-    printf("Patient info parsing error\n");
+    printf("Patient info parsing error, will retry\n");
+    etimer_reset(&et);
   }
        
 }
@@ -912,10 +917,9 @@ PROCESS_THREAD(patient_process, ev, data)
 {
 
   PROCESS_BEGIN();
-  static struct etimer et;
-  static int flagRegistration = 0;
+  
 
-  printf("Patient node process (PATIENT_ID=%d)\n", PATIENT_ID);
+  printf("Patient node process (DEVICE_ID=%d)\n", DEVICE_ID);
   vitals_buffer_init();
   triage_report_init();
 
@@ -950,7 +954,6 @@ PROCESS_THREAD(patient_process, ev, data)
       COAP_BLOCKING_REQUEST(&server_addr, request, client_chunk_handler);
 
       printf("\n--Registration request sent--\n");
-      flagRegistration = 1;
     }
   }
 
@@ -1030,10 +1033,10 @@ PROCESS_THREAD(patient_process, ev, data)
 
         coap_set_payload(request_for_nurse, (uint8_t *)msg, strlen(msg));
 
-        LOG_INFO_COAP_EP(&server_addr);
+        LOG_INFO_COAP_EP(&nurse_addr);
         LOG_INFO_("\n");
 
-        COAP_BLOCKING_REQUEST(&server_addr, request, client_chunk_handler);
+        COAP_BLOCKING_REQUEST(&nurse_addr, request_for_nurse, client_chunk_handler);
 
         printf("\n--Request sent--\n");
 

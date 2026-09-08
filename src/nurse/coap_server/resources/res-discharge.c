@@ -44,7 +44,7 @@ static void res_put_handler(coap_message_t *request, coap_message_t *response, u
         }
 
         //  Too big of a payload
-        if(payload_len >= REST_MAX_CHUNK_SIZE) {
+        if(payload_len >= preferred_size) {
             LOG_ERR("Bad discharge request: payload too large\n");
             coap_set_status_code(response, REQUEST_ENTITY_TOO_LARGE_4_13);
             return;

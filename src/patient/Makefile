@@ -29,7 +29,7 @@ PROJECT_SOURCEFILES += triage_model.c
 # Device ID, passed through command line:
 # make TARGET=cooja DEVICE_ID=1
 DEVICE_ID ?= 1
-CFLAGS += -DPATIENT_ID=$(DEVICE_ID)
+CFLAGS += -DDEVICE_ID=$(DEVICE_ID)
 
 #	%TODO: This can be removed if needed. It's used to not treat warnings as errors, otherwise Contiki doesn't compile on my PC (ALE)
 CFLAGS += -Wno-error=discarded-qualifiers

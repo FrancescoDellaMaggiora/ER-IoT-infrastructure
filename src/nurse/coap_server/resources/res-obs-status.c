@@ -36,7 +36,8 @@ static void res_get_handler(coap_message_t *request, coap_message_t *response, u
     len = snprintf((char *)buffer, preferred_size, "{\"PATIENT_ID\":%ld,\"STATUS\":%d}", notification_patient_id, notification_status);
 
     if(len < 0 || len >= preferred_size) {
-        coap_set_status_code(response, INTERNAL_SERVER_ERROR_5_00);
+        LOG_ERR("Bad discharge request: payload too large\n");
+        coap_set_status_code(response, REQUEST_ENTITY_TOO_LARGE_4_13);
         return;
     }
 

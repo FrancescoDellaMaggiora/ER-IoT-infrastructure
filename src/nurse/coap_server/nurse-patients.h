@@ -12,8 +12,8 @@
 //  Max number of colors available (Nordic nRF52840 Dongle)
 #define MAX_COLORS 7
 
-//  Social security number's size (9 characters + '\0')
-#define SSN_SIZE 10
+//  Social security number's size (16 characters + '\0')
+#define SSN_SIZE 17
 
 //  Patient name and surname's buffer size
 #define NAME_SIZE 30

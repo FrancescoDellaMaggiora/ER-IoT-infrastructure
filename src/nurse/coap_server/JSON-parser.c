@@ -490,19 +490,26 @@ int parse_association_payload(const uint8_t *buffer, int payload_len, int *patie
         pointer++;
     }
 
-    parsed_timestamp = strtoul(pointer, &end_pointer, 10);
+    /* The Cloud sends null for a patient who has never been visited */
+    if(strncmp(pointer, "null", 4) == 0) {
+        *last_visit_timestamp = 0;
+        end_pointer = (char *)pointer + 4;
 
-    if(pointer == end_pointer) {
-        LOG_ERR("Bad association request: invalid last visit timestamp\n");
-        return -1;
+    } else {
+        parsed_timestamp = strtoul(pointer, &end_pointer, 10);
+
+        if(pointer == end_pointer) {
+            LOG_ERR("Bad association request: invalid last visit timestamp\n");
+            return -1;
+        }
+
+        if(parsed_timestamp > UINT32_MAX) {
+            LOG_ERR("Bad association request: last visit timestamp too large\n");
+            return -1;
+        }
+
+        *last_visit_timestamp = (uint32_t)parsed_timestamp;
     }
-
-    if(parsed_timestamp > UINT32_MAX) {
-        LOG_ERR("Bad association request: last visit timestamp too large\n");
-        return -1;
-    }
-
-    *last_visit_timestamp = (uint32_t)parsed_timestamp;
 
     while(*end_pointer == ' ' || *end_pointer == '\t' ||
           *end_pointer == '\n' || *end_pointer == '\r') {
