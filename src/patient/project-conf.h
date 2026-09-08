@@ -54,6 +54,8 @@
 
 #define TRIAGE_REPORT_CONF_CLOUD_EP "coap://[fd00:1::1]"
 
+#define SERVER_ADDR "coap://[fd00:1::1]"
+
 
 #define REST_MAX_CHUNK_SIZE 256
 /*---------------------------------------------------------------------------*/

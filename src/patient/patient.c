@@ -35,11 +35,16 @@ Patient node - application logic
 #include "vitals-buffer.h"
 #include "triage-report.h"
 
+#include "coap-blocking-api.h"
+#include "coap-log.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <math.h>
+
 /*---------------------------------------------------------------------------*/
 #define LOG_MODULE "patient"
 #ifdef MQTT_CLIENT_CONF_LOG_LEVEL
@@ -97,11 +102,13 @@ static char sub_topic[BUFFER_SIZE];
 
 /*---------------------------------------------------------------------------*/
 /*
- * The main MQTT payload buffer.
+ * The two MQTT payload buffer.
  * We will need to increase if we start publishing more data.
+ * We need 2 separete buffer because otherwise one buffer will be completed override.
  */
 #define APP_BUFFER_SIZE 512
-static char app_buffer[APP_BUFFER_SIZE];
+static char vitals_app_buffer[APP_BUFFER_SIZE];
+static char alert_app_buffer[APP_BUFFER_SIZE];
 
 /*---------------------------------------------------------------------------*/
 /*  The sequence number is associated to a measurement cycle, so vital +
@@ -147,9 +154,9 @@ static device_data_t patient_info;
 
 /*---------------------------------------------------------------------------*/
 /*
- * Input for the AI model
+ * Input for the AI model Useless?
  */ 
-static float model_input[VITALS_WINDOW * VITALS_FEATURES];
+//static float model_input[VITALS_WINDOW * VITALS_FEATURES];
 
 /*---------------------------------------------------------------------------*/
 /*
@@ -178,9 +185,21 @@ const simulation_parameters_t SIMULATION_VALUES[SIM_PARAM_COUNT] = {
   {  36.0f,      0.3f,      0.3f },   /* SIM_TEMP */
   { 115.0f,      6.9f,      0.6f },   /* SIM_SBP  */
   {  61.0f,      6.3f,      1.1f },   /* SIM_DBP  */
-  {  14.0f,      0.5f,      0.3f },   /* SIM_RR   */
+  {  14.0f,      0.5f,      2.0f },   /* SIM_RR   */
 };
 
+/*
+ * Simulation state kept in floating point.
+ *
+ * The published vitals are integers, but the AR(1) process MUST NOT be
+ * iterated on them: casting to int truncates toward zero, so positive
+ * noise is discarded while negative noise is amplified. That is a
+ * systematic -0.5/step drift, not noise - the mean reversion then
+ * settles at whatever deviation makes the pull cancel it (SpO2 ended up
+ * stuck at 56 instead of 98). Keeping the state as float and rounding
+ * only for publication removes the bias entirely.
+ */
+static float sim_hr, sim_spo2, sim_sbp, sim_dbp, sim_rr;
 
 /*---------------------------------------------------------------------------*/
 PROCESS(patient_process, "Patient node");
@@ -251,7 +270,7 @@ static int construct_pub_topic(void)
  */
 static int  construct_client_id(void) {
   
-  int len = snprintf(client_id, BUFFER_SIZE, "patient-%d", patient_info.patient_id);
+  int len = snprintf(client_id, BUFFER_SIZE, "patient-%li", patient_info.patient_id);
 
   /* len < 0: Error. Len >= BUFFER_SIZE: Buffer too small */
   if(len < 0 || len >= BUFFER_SIZE) {
@@ -272,6 +291,13 @@ static int  construct_client_id(void) {
  */
 static void patient_vitals_init(void)
 {
+
+  sim_hr   = 72.0f;
+  sim_spo2 = 98.0f;
+  sim_sbp  = 115.0f;
+  sim_dbp  = 61.0f;
+  sim_rr   = 14.0f;
+
   current_vitals.heart_rate = 72; 
   current_vitals.spo2 = 98;
   current_vitals.temperature = 36.0f;
@@ -316,6 +342,22 @@ static float random_variation(
   return current + pull + noise;
 }
 
+/*
+ * Advances one simulated vital: iterate in float, clamp to a physically
+ * possible range, and round (not truncate) for the published integer.
+ * The clamp is a safety net against the uint16_t wraparound that
+ * produced values like 65535, not a clinical threshold.
+ */
+static uint16_t sim_advance(float *state, simulation_parameters_t par, float lo, float hi)
+{
+  *state = random_variation(*state, par);
+
+  if(*state < lo) { *state = lo; }
+  if(*state > hi) { *state = hi; }
+
+  return (uint16_t)roundf(*state);
+}
+
 /*---------------------------------------------------------------------------*/
 /*
  *  This function reads sensor data and implements the alert
@@ -333,7 +375,7 @@ static void patient_measurement_cycle(void)
   //  Read vitals
   if(attached_sensors & SENSOR_HEART_RATE) {
 
-    current_vitals.heart_rate = (int16_t)random_variation(current_vitals.heart_rate, SIMULATION_VALUES[0])
+    current_vitals.heart_rate = sim_advance(&sim_hr, SIMULATION_VALUES[SIM_HR], 20.0f, 250.0f);
 
     if(current_vitals.heart_rate < MIN_HEART_RATE ||
        current_vitals.heart_rate > MAX_HEART_RATE) {
@@ -345,9 +387,7 @@ static void patient_measurement_cycle(void)
 
   if(attached_sensors & SENSOR_SPO2) {
 
-    current_vitals.spo2 = (int8_t)random_variation(current_vitals.spo2, SIMULATION_VALUES[1]);
-    if(current_vitals.spo2 > 100.0f) { current_vitals.spo2 = 100.0f; }
-    if(current_vitals.spo2 < 0.0f)   { current_vitals.spo2 = 0.0f; }
+    current_vitals.spo2 = (uint8_t)sim_advance(&sim_spo2, SIMULATION_VALUES[SIM_SPO2], 50.0f, 100.0f);
 
     if(current_vitals.spo2 < MIN_SPO2 || current_vitals.spo2 > MAX_SPO2) {
       active_alerts |= ALERT_SPO2;
@@ -370,7 +410,7 @@ static void patient_measurement_cycle(void)
 
   if(attached_sensors & SENSOR_PRESSURE_SYSTOLIC) {
 
-    current_vitals.pressure_systolic = (int16_t)random_variation(current_vitals.pressure_systolic, SIMULATION_VALUES[3]);
+    current_vitals.pressure_systolic = sim_advance(&sim_sbp, SIMULATION_VALUES[SIM_SBP], 40.0f, 250.0f);
 
     if(current_vitals.pressure_systolic < MIN_PRESSURE_SYSTOLIC ||
        current_vitals.pressure_systolic > MAX_PRESSURE_SYSTOLIC) {
@@ -382,7 +422,7 @@ static void patient_measurement_cycle(void)
 
   if(attached_sensors & SENSOR_PRESSURE_DIASTOLIC) {
 
-    current_vitals.pressure_diastolic = (int16_t)random_variation(current_vitals.pressure_diastolic, SIMULATION_VALUES[4]);
+    current_vitals.pressure_diastolic = sim_advance(&sim_dbp, SIMULATION_VALUES[SIM_DBP], 20.0f, 150.0f);
 
     if(current_vitals.pressure_diastolic < MIN_PRESSURE_DIASTOLIC ||
        current_vitals.pressure_diastolic > MAX_PRESSURE_DIASTOLIC) {
@@ -392,9 +432,9 @@ static void patient_measurement_cycle(void)
     }
   }
 
-  if(attached_sensors & ALERT_RESPIRATION_RATE) {
+  if(attached_sensors & SENSOR_RESPIRATION_RATE) {
 
-    current_vitals.respiration_rate = (int16_t)random_variation(current_vitals.respiration_rate, SIMULATION_VALUES[5]);
+    current_vitals.respiration_rate = sim_advance(&sim_rr, SIMULATION_VALUES[SIM_RR], 4.0f, 60.0f);
 
     if(current_vitals.respiration_rate < MIN_RESPIRATION_RATE ||
        current_vitals.respiration_rate > MAX_RESPIRATION_RATE) {
@@ -423,7 +463,7 @@ static void patient_measurement_cycle(void)
   
       /* Then tell the Cloud. Returns immediately; the CoAP exchange
       * completes in the background. */
-      triage_report_send(db_patient_id, predicted_code);
+      triage_report_send(patient_info.patient_id, predicted_code);
     } 
   }
 }
@@ -588,8 +628,8 @@ static int build_payload_alert(char *buffer, int buffer_size)
     senml_add_int(&b, "dia-pressure-alert", "mmHg",
                   current_vitals.pressure_diastolic);
   }
-  if(attached_sensors & ALERT_RESPIRATION_RATE) {
-    senml_add_int(&b, "respiration_rate", "respiration/min",
+  if(active_alerts & ALERT_RESPIRATION_RATE) {
+    senml_add_int(&b, "respiration-rate-alert", "respiration/min",
                   current_vitals.respiration_rate);
   }
 
@@ -607,6 +647,7 @@ static int build_payload_alert(char *buffer, int buffer_size)
 static void publish(uint8_t topic_id) {
 
   char *topic;
+  char *buf;
   mqtt_qos_level_t qos;
 
   //  Payload construction
@@ -615,9 +656,10 @@ static void publish(uint8_t topic_id) {
   if(topic_id == TOPIC_MSG_VITALS) { //  If topic = "vitals"
 
     topic = vitals_topic;
+    buf = vitals_app_buffer;
     qos = MQTT_QOS_LEVEL_0;
 
-    if(!build_payload_vitals(app_buffer, APP_BUFFER_SIZE)) {
+    if(!build_payload_vitals(buf, APP_BUFFER_SIZE)) {
       LOG_ERR("Vitals payload construction fail\n");
       return;
     }
@@ -625,8 +667,9 @@ static void publish(uint8_t topic_id) {
 
     topic = alert_topic;
     qos = MQTT_QOS_LEVEL_1;
+    buf = alert_app_buffer;
 
-    if(!build_payload_alert(app_buffer, APP_BUFFER_SIZE)) {
+    if(!build_payload_alert(buf, APP_BUFFER_SIZE)) {
       LOG_ERR("Alert payload construction fail\n");
       return;
     }
@@ -636,7 +679,7 @@ static void publish(uint8_t topic_id) {
     return;
   }
 
-  mqtt_service_publish(topic, (uint8_t *)app_buffer, strlen(app_buffer), qos);
+    mqtt_service_publish(topic, (uint8_t *)buf, strlen(buf), qos);
 
   LOG_DBG("Publish on '%s'!\n", topic);
 }
@@ -847,8 +890,9 @@ void client_chunk_handler(coap_message_t *response) {
 PROCESS_THREAD(patient_process, ev, data)
 {
 
-  static int flagRegistration = 0;
   PROCESS_BEGIN();
+  static struct etimer et;
+  static int flagRegistration = 0;
 
   printf("Patient node process (PATIENT_ID=%d)\n", PATIENT_ID);
   vitals_buffer_init();
@@ -961,7 +1005,7 @@ PROCESS_THREAD(patient_process, ev, data)
 
         //  Build JSON payload
         char msg[40];
-        snprintf(msg, sizeof(msg), "{\"PATIENT_ID\":%li,\"TIMESTAMP\":%i}", patient_info.patient_id, now());
+        snprintf(msg, sizeof(msg), "{\"PATIENT_ID\":%li,\"TIMESTAMP\":%li}", patient_info.patient_id, clock_seconds());
 
         coap_set_payload(request_for_nurse, (uint8_t *)msg, strlen(msg));
 

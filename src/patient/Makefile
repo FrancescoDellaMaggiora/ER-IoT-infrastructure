@@ -4,7 +4,7 @@ all: $(CONTIKI_PROJECT)
 # Include CoAP resources
 MODULES_REL += ./resources
 
-CONTIKI = ../../../contiki-ng
+CONTIKI = ../../../../..
 
 include $(CONTIKI)/Makefile.dir-variables
 MODULES += $(CONTIKI_NG_APP_LAYER_DIR)/mqtt

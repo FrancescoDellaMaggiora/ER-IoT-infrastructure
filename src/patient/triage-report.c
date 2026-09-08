@@ -36,7 +36,7 @@
  */
 static coap_endpoint_t cloud_ep;
 static coap_message_t request[1];
-static coap_request_state_t request_state;
+static coap_callback_request_state_t  request_state;
 static char payload_buf[PAYLOAD_BUF_SIZE];
 
 /* Patient id of the report currently in flight, kept for the log line
@@ -49,36 +49,38 @@ static bool busy;
  * Called by the CoAP engine when the exchange ends, from the engine's
  * own context - no waiting, no event stealing.
  */
-static void
-report_callback(coap_request_state_t *state)
+static void report_callback(coap_callback_request_state_t  *state)
 {
-  switch(state->status) {
-  case COAP_REQUEST_STATUS_RESPONSE: {
-    coap_message_t *response = state->response;
 
-    LOG_INFO("Cloud replied %u.%02u\n",
-             response->code >> 5, response->code & 0x1F);
+  coap_request_state_t *request_state = &state->state;
 
-    /* 4.04 means the Cloud does not know this PATIENT_ID: almost always
-     * the build-time PATIENT_ID was sent instead of the one learnt at
-     * bootstrap. Worth an explicit message, it is easy to misdiagnose. */
-    if(response->code == NOT_FOUND_4_04) {
-      LOG_ERR("Cloud does not know patient %ld - wrong id?\n",
-              inflight_patient_id);
-    }
-    break;
-  }
+  switch(request_state->status) {
+  
+    case COAP_REQUEST_STATUS_RESPONSE:
+      coap_message_t *response = request_state->response;
 
-  case COAP_REQUEST_STATUS_TIMEOUT:
-    /* Timed out after the CoAP retransmissions. Nothing is retried here
-     * on purpose: a stale retry could overwrite a newer code decided in
-     * the meantime, and the Cloud keeps receiving the vitals anyway. */
-    LOG_WARN("Triage report timed out\n");
-    break;
+      LOG_INFO("Cloud replied %u.%02u\n",
+              response->code >> 5, response->code & 0x1F);
 
-  default:
-    LOG_WARN("Triage report ended with status %u\n", state->status);
-    break;
+      /* 4.04 means the Cloud does not know this PATIENT_ID: almost always
+      * the build-time PATIENT_ID was sent instead of the one learnt at
+      * bootstrap. Worth an explicit message, it is easy to misdiagnose. */
+      if(response->code == NOT_FOUND_4_04) {
+        LOG_ERR("Cloud does not know patient %ld - wrong id?\n",
+                inflight_patient_id);
+      }
+      break;
+    
+    case COAP_REQUEST_STATUS_TIMEOUT:
+      /* Timed out after the CoAP retransmissions. Nothing is retried here
+      * on purpose: a stale retry could overwrite a newer code decided in
+      * the meantime, and the Cloud keeps receiving the vitals anyway. */
+      LOG_WARN("Triage report timed out\n");
+      break;
+
+    default:
+      LOG_WARN("Triage report ended with status %u\n", request_state->status);
+      break;
   }
 
   /* Released only here, not when coap_send_request() returns: the
@@ -149,7 +151,7 @@ triage_report_send(long patient_id, uint8_t triage_code)
    * Returns as soon as the request is queued; report_callback() runs
    * later. */
   busy = true;
-  if(!coap_send_request(&request_state, &cloud_ep, request, report_callback)) {
+  if(!coap_send_request(&request_state, &cloud_ep, request, &report_callback)) {
     LOG_ERR("Could not queue the triage report\n");
     busy = false;
     return false;

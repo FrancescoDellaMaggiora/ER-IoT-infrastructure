@@ -3,7 +3,7 @@
  * triage-model.c - On-device triage classification (implementation)
  */
 /*---------------------------------------------------------------------------*/
-#include "triage-model.h"
+#include "triage_model.h"
 
 #include <math.h>
 #include <string.h>
@@ -151,3 +151,9 @@ triage_model_predict(void)
   return (uint8_t)(class_idx + 1);
 }
 /*---------------------------------------------------------------------------*/
+
+// Dummy function to suppress unused variable/function warnings from emlearn
+void suppress_emlearn_warnings(void) {
+    (void)eml_error_str(0);
+    (void)eml_net_activation_function_strs;
+}
