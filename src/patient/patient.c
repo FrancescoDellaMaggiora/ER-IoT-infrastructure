@@ -210,6 +210,78 @@ static float sim_hr, sim_spo2, sim_sbp, sim_dbp, sim_rr;
 static uint8_t candidate_code = 0;
 static uint8_t candidate_streak = 0;
 
+
+/*---------------------------------------------------------------------------*/
+/* Congestion handling (adaptive mechanism #1)                               */
+/*---------------------------------------------------------------------------*/
+#if ADAPTIVE_CONGESTION
+
+/*
+ * A single refused publish means nothing: it happens routinely when the
+ * previous message has not left the queue yet. What indicates congestion
+ * is a SEQUENCE of refusals - the queue never draining across several
+ * consecutive slots.
+ *
+ * The thresholds are asymmetric on purpose: entering quickly protects
+ * the channel, leaving slowly avoids flapping back into congestion on a
+ * single lucky success.
+ */
+#define CONGESTION_ENTER_THRESHOLD  3
+#define CONGESTION_EXIT_THRESHOLD   5
+
+static uint8_t consecutive_failures = 0;
+static uint8_t consecutive_successes = 0;
+static bool network_congested = false;
+
+static void congestion_update(bool publish_ok)
+{
+  if(publish_ok) {
+    consecutive_failures = 0;
+    if(network_congested) {
+      consecutive_successes++;
+      if(consecutive_successes >= CONGESTION_EXIT_THRESHOLD) {
+        network_congested = false;
+        consecutive_successes = 0;
+        LOG_INFO("Congestion cleared\n");
+      }
+    }
+  } else {
+    consecutive_successes = 0;
+    if(!network_congested) {
+      consecutive_failures++;
+      if(consecutive_failures >= CONGESTION_ENTER_THRESHOLD) {
+        network_congested = true;
+        consecutive_failures = 0;
+        LOG_INFO("Congestion detected: throttling low-priority vitals\n");
+      }
+    }
+  }
+}
+
+/*
+ * Under congestion, low-priority patients stop sending ROUTINE vitals:
+ * network triage mirroring clinical triage. Alerts are never suppressed
+ * - a deteriorating white-code patient must still be able to raise one,
+ * and that is precisely what makes the mechanism safe to apply.
+ */
+static bool should_suppress_vitals(void)
+{
+  if(!network_congested) {
+    return false;
+  }
+
+  return patient_info.triage_code == CODE_GREEN ||
+         patient_info.triage_code == CODE_WHITE;
+}
+
+#else  /* ADAPTIVE_CONGESTION == 0 */
+
+/* Baseline build: no detection, nothing ever suppressed. */
+#define congestion_update(ok)     do { } while(0)
+#define should_suppress_vitals()  false
+
+#endif /* ADAPTIVE_CONGESTION */
+
 /*---------------------------------------------------------------------------*/
 PROCESS(patient_process, "Patient node");
 AUTOSTART_PROCESSES(&patient_process);
@@ -701,6 +773,10 @@ static void publish(uint8_t topic_id) {
 
   mqtt_status_t status = mqtt_service_publish(topic, (uint8_t *)buf, strlen(buf), qos);
 
+  #ifdef ADAPTIVE_CONGESTION
+    congestion_update(status == MQTT_STATUS_OK);
+  #endif
+
   if(status != MQTT_STATUS_OK) {
     LOG_WARN("Publish on '%s' REFUSED, status %d (payload %u B)\n",
             topic, status, (unsigned)strlen(buf));
@@ -753,10 +829,21 @@ static clock_time_t on_publish_slot(void) {
   LOG_DBG("Starting measurement cycle\n");
   patient_measurement_cycle();
 
-  seq_nr_value++;
+  
 
+  #ifdef ADAPTIVE_CONGESTION 
+    if(should_suppress_vitals()) {
+      LOG_DBG("Congested, low-priority vitals suppressed\n");
+    } else {
+  #endif
+    
+  seq_nr_value++;
   LOG_DBG("Publishing vitals\n");
   publish(TOPIC_MSG_VITALS);
+
+  #ifdef ADAPTIVE_CONGESTION 
+    }
+  #endif
 
   //  If alerts are detected they get published
   if(active_alerts != 0) {
@@ -764,6 +851,7 @@ static clock_time_t on_publish_slot(void) {
     alert_pending = true;
     return ALERT_PUBLISH_INTERVAL;
   }
+  
 
   //  In case of alert publish every second instead of every 30 seconds
   return DEFAULT_PUBLISH_INTERVAL;
