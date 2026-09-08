@@ -185,7 +185,7 @@ const simulation_parameters_t SIMULATION_VALUES[SIM_PARAM_COUNT] = {
   {  36.0f,      0.3f,      20.0f },   /* SIM_TEMP */
   { 115.0f,      6.9f,      20.0f },   /* SIM_SBP  */
   {  61.0f,      6.3f,      20.0f },   /* SIM_DBP  */
-  {  14.0f,      0.5f,      0.5f },   /* SIM_RR   */
+  {  14.0f,      0.5f,      20.0f },   /* SIM_RR   */
 };
 
 /*
@@ -200,6 +200,15 @@ const simulation_parameters_t SIMULATION_VALUES[SIM_PARAM_COUNT] = {
  * only for publication removes the bias entirely.
  */
 static float sim_hr, sim_spo2, sim_sbp, sim_dbp, sim_rr;
+
+ /*
+   * Confirmation counter: a classifier sitting near a decision boundary
+   * flips between adjacent codes.
+   * Each flip costs a CoAP PUT to the cloud plus one from
+   * the cloud to the nurse, so a code is committed only after the model
+   * has predicted it consistently. */
+static uint8_t candidate_code = 0;
+static uint8_t candidate_streak = 0;
 
 /*---------------------------------------------------------------------------*/
 PROCESS(patient_process, "Patient node");
@@ -448,24 +457,35 @@ static void patient_measurement_cycle(void)
    * the inference below runs on a window that includes it. */
   vitals_buffer_push(&current_vitals);
 
-  /* 0 until the window fills up (VITALS_WINDOW measurement cycles
-    * after boot), and on inference failure. */
+  /*
+   * 0 until the window fills up (VITALS_WINDOW measurement cycles
+   * after boot), and on inference failure.
+   */
   uint8_t predicted_code = triage_model_predict();
 
-  if(predicted_code != 0 && predicted_code != patient_info.triage_code) {
- 
-    if(predicted_code != 0 && predicted_code != patient_info.triage_code) {
- 
+  if(predicted_code == 0) {
+    // no prediction yet
+  } else if ( predicted_code != patient_info.triage_code) {
+    
+    if (predicted_code == candidate_code) {
+      candidate_streak++;
+    } else {
+      candidate_code = predicted_code;
+      candidate_streak = 1;
+    }
+
+    if(candidate_streak >= 3) {
+
       LOG_INFO("Model changed triage code: %u -> %u\n",
-             patient_info.triage_code, predicted_code);
- 
-      patient_info.triage_code = predicted_code;
+              patient_info.triage_code, candidate_code);
+
+      patient_info.triage_code = candidate_code;
+      triage_report_send(patient_info.patient_id, candidate_code);
+    }
+  } 
+
   
-      /* Then tell the Cloud. Returns immediately; the CoAP exchange
-      * completes in the background. */
-      triage_report_send(patient_info.patient_id, predicted_code);
-    } 
-  }
+  
 }
 
 

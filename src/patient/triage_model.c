@@ -141,8 +141,8 @@ triage_model_predict(void)
 
   class_idx = argmax(probabilities, ML_N_CLASSES);
 
-  LOG_DBG("Predicted class %u (p=%d%%)\n",
-          class_idx, (int)(probabilities[class_idx] * 100));
+  LOG_INFO("Predicted class %u (p=%d%%)\n",
+          class_idx+1, (int)(probabilities[class_idx] * 100));
 
   /* The network outputs a class INDEX 0-4; triage codes run 1-5.
    * TODO: confirm against CODE_LABELS in the notebook - if the labels
