@@ -180,12 +180,12 @@ static coap_endpoint_t nurse_addr;
  */
 const simulation_parameters_t SIMULATION_VALUES[SIM_PARAM_COUNT] = {
   /* baseline, noise_amp, pull_pct */
-  {  72.0f,      3.3f,      1.3f },   /* SIM_HR   */
-  {  98.0f,      0.5f,      1.2f },   /* SIM_SPO2 */
-  {  36.0f,      0.3f,      0.3f },   /* SIM_TEMP */
-  { 115.0f,      6.9f,      0.6f },   /* SIM_SBP  */
-  {  61.0f,      6.3f,      1.1f },   /* SIM_DBP  */
-  {  14.0f,      0.5f,      2.0f },   /* SIM_RR   */
+  {  72.0f,      3.3f,      15.0f },   /* SIM_HR   */
+  {  98.0f,      0.5f,      25.0f },   /* SIM_SPO2 */
+  {  36.0f,      0.3f,      20.0f },   /* SIM_TEMP */
+  { 115.0f,      6.9f,      20.0f },   /* SIM_SBP  */
+  {  61.0f,      6.3f,      20.0f },   /* SIM_DBP  */
+  {  14.0f,      0.5f,      0.5f },   /* SIM_RR   */
 };
 
 /*
@@ -679,10 +679,16 @@ static void publish(uint8_t topic_id) {
     return;
   }
 
-    mqtt_service_publish(topic, (uint8_t *)buf, strlen(buf), qos);
+  mqtt_status_t status = mqtt_service_publish(topic, (uint8_t *)buf, strlen(buf), qos);
+
+  if(status != MQTT_STATUS_OK) {
+    LOG_WARN("Publish on '%s' REFUSED, status %d (payload %u B)\n",
+            topic, status, (unsigned)strlen(buf));
+    return;
+  }
 
   LOG_DBG("Publish on '%s'!\n", topic);
-}
+  }
 
 /*---------------------------------------------------------------------------*/
 /* MQTT service callbacks                                                    */
@@ -703,29 +709,44 @@ static void on_mqtt_connected(void)
 
 /*---------------------------------------------------------------------------*/
 /*
- * Called by the service on every publish slot (connection up and idle).
- * Runs one measurement cycle, publishes, and returns the interval until
- * the next slot: this is where the routine/alert rate policy lives.
+ * Contiki-NG's MQTT out queue holds ONE message at a time: a second
+ * mqtt_publish() in the same slot is refused with
+ * MQTT_STATUS_OUT_QUEUE_FULL, regardless of payload size (a 46 B alert
+ * was refused just like a 180 B one). So the alert is deferred to the
+ * next slot rather than sent back-to-back with the vitals.
  */
+
+static bool alert_pending = false;
+
 static clock_time_t on_publish_slot(void) {
+
+  if(alert_pending) {
+    /* The previous slot raised an alert. Publish it now and skip the
+     * measurement cycle: the alert must carry the values that actually
+     * triggered it, not fresher ones that may be back in range. */
+    LOG_DBG("Publishing deferred alert\n");
+    publish(TOPIC_MSG_ALERT);
+    alert_pending = false;
+    return ALERT_PUBLISH_INTERVAL;
+  }
   //  "patient_measurement_cycle()" checks sensor values
   LOG_DBG("Starting measurement cycle\n");
   patient_measurement_cycle();
 
   seq_nr_value++;
 
-  //  Vitals are always published
   LOG_DBG("Publishing vitals\n");
   publish(TOPIC_MSG_VITALS);
 
   //  If alerts are detected they get published
   if(active_alerts != 0) {
-    LOG_DBG("Alerts detected. Publishing alerts\n");
-    publish(TOPIC_MSG_ALERT);
+    LOG_DBG("Alerts detected, deferring to next slot\n");
+    alert_pending = true;
+    return ALERT_PUBLISH_INTERVAL;
   }
 
   //  In case of alert publish every second instead of every 30 seconds
-  return active_alerts ? ALERT_PUBLISH_INTERVAL : DEFAULT_PUBLISH_INTERVAL;
+  return DEFAULT_PUBLISH_INTERVAL;
 }
 /*---------------------------------------------------------------------------*/
 
@@ -899,7 +920,7 @@ PROCESS_THREAD(patient_process, ev, data)
   triage_report_init();
 
   //  The device tries to register after 1 second it's on
-  etimer_set(&et, 1 * CLOCK_SECOND);
+  etimer_set(&et, 60 * CLOCK_SECOND);
     
   //  Set the resource URI /er/patient/registration/<DEVICE_ID>
   snprintf(REGISTRATION_URI, sizeof(REGISTRATION_URI), "/er/patient/registration/%i", DEVICE_ID);

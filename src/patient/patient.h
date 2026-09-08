@@ -208,8 +208,8 @@ typedef struct {
 /*---------------------------------------------------------------------------*/
 // RESOURCE HANDLING FUNCTIONS
 
-    //  This function is will be passed to COAP_BLOCKING_REQUEST() to handle responses
-    void client_chunk_handler(coap_message_t*);
+//  This function is will be passed to COAP_BLOCKING_REQUEST() to handle responses
+void client_chunk_handler(coap_message_t*);
 
 // RESOURCE HANDLING FUNCTIONS END
 /*---------------------------------------------------------------------------*/
