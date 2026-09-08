@@ -61,6 +61,7 @@ Patient node - application logic
 #include "os/sys/log.h"
 
 #include "patient.h"
+#include "triage-model.h"
 #include "mqtt-service.h"
 #include "vitals-buffer.h"
 #include "triage-report.h"
@@ -371,32 +372,28 @@ patient_measurement_cycle(void)
     }
   }
 
+  /* Feed the freshly measured reading to the sliding window first, so
+   * the inference below runs on a window that includes it. */
+  vitals_buffer_push(&current_vitals);
+
   if(vitals_buffer_is_full() && vitals_buffer_export(model_input)) {
  
-    /* TODO: run the model on model_input and put the predicted code
-     * (1-5) in predicted_code. Until then this block does nothing. */
-    uint8_t predicted_code = 0;
- 
-    /* Report ONLY on an actual change. Without this guard the node
-     * would PUT to the Cloud on every measurement cycle, which for a
-     * stable patient is pure traffic - and would defeat the whole
-     * point during the congestion stress test. */
+    /* 0 until the window fills up (VITALS_WINDOW measurement cycles
+    * after boot), and on inference failure. */
+    uint8_t predicted_code = triage_model_predict();
+  
     if(predicted_code != 0 && predicted_code != current_triage_code) {
  
       LOG_INFO("Model changed triage code: %u -> %u\n",
-               current_triage_code, predicted_code);
+             current_triage_code, predicted_code);
  
       current_triage_code = predicted_code;
- 
-      /* Then tell the Cloud. This RETURNS IMMEDIATELY - the CoAP
-       * exchange completes in the background and its result is logged
-       * by the module's callback. The measurement cycle is never
-       * delayed by the network, which matters most precisely when the
-       * network is congested. A failure is not fatal: the Cloud keeps
-       * receiving the vitals, and the next change is reported again. */
+  
+      /* Then tell the Cloud. Returns immediately; the CoAP exchange
+      * completes in the background. */
       triage_report_send(db_patient_id, predicted_code);
-    }
-
+    } 
+  }
 }
 /*---------------------------------------------------------------------------*/
 /* SenML payload construction                                                */
@@ -640,7 +637,7 @@ on_publish_slot(void)
     publish(TOPIC_MSG_ALERT);
   }
 
-  vitals_buffer_push(&current_vitals);
+  //vitals_buffer_push(&current_vitals);
   //  In case of alert publish every second instead of every 30 seconds
   return active_alerts ? ALERT_PUBLISH_INTERVAL : DEFAULT_PUBLISH_INTERVAL;
 }
