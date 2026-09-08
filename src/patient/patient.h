@@ -52,7 +52,7 @@
 //    make TARGET=<target> PATIENT_ID=<number>
 
 #ifndef PATIENT_ID
-#define PATIENT_ID 0
+#define PATIENT_ID 1
 #endif
 
 /*---------------------------------------------------------------------------*/

@@ -146,6 +146,9 @@ bool mqtt_service_ready(void);
  * the button in patient.c, as in the original example.
  */
 void mqtt_service_recover(void);
+
+//  This function is used to handle the discharge resource. Its aim is to stop all MQTT activity.
+void mqtt_service_stop();
 /*---------------------------------------------------------------------------*/
 #endif /* MQTT_SERVICE_H_ */
 /*---------------------------------------------------------------------------*/

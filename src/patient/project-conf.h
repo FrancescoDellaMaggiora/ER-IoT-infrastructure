@@ -42,6 +42,8 @@
 #define LOG_CONF_LEVEL_TCPIP LOG_LEVEL_DBG
 */
 
+#define LOG_LEVEL_APP LOG_LEVEL_DBG
+
 /*
  * The IPv6 address of the MQTT broker to connect to.
  * With the Cooja + tunslip6 setup this is typically the address of the

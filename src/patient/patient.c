@@ -63,6 +63,7 @@ Patient node - application logic
 #include "patient.h"
 #include "triage-model.h"
 #include "mqtt-service.h"
+#include "coap-engine.h"
 #include "vitals-buffer.h"
 #include "triage-report.h"
 
@@ -143,6 +144,12 @@ static uint8_t active_alerts = 0;
 
 //  Data structure holding current patient vitals
 static patient_vitals_t current_vitals;
+
+//  Event triggered during a patient discharge request
+process_event_t discharge_event;
+
+//  Discharge resource
+extern coap_resource_t res_discharge;
 
 // Input for the AI model
 static float model_input[VITALS_WINDOW * VITALS_FEATURES];
@@ -662,6 +669,9 @@ PROCESS_THREAD(patient_process, ev, data)
   triage_report_init();
 
 
+  //  This event is needed by the discharge resource to interrupt all MQTT and COAP communication
+  discharge_event = process_alloc_event();
+
   /* Build our identifiers. A failure here is fatal: identifiers are
    * static strings, if they don't fit the buffers there is nothing we
    * can do at runtime. */
@@ -673,6 +683,10 @@ PROCESS_THREAD(patient_process, ev, data)
     LOG_ERR("Fatal: identifier construction failed\n");
     PROCESS_EXIT();
   }
+
+  //  Patient discharge resource
+  //  CLOUD -> DEVICE
+  coap_activate_resource(&res_discharge, "er/patient/discharge");
 
   /* Populate patient's vitals with default values */
   patient_vitals_init();
@@ -686,6 +700,19 @@ PROCESS_THREAD(patient_process, ev, data)
   while(1) {
 
     PROCESS_YIELD();
+
+    //  A discharge request triggers this event
+    if(ev == discharge_event) {
+
+        LOG_INFO("Patient discharged, stopping communications . . .\n");
+
+        mqtt_service_stop();
+
+        LOG_INFO("Patient node stopped. Waiting for shutdown.\n");
+
+        PROCESS_EXIT();
+
+    }
     
     /* Timers/polls belonging to the MQTT service */
     if(mqtt_service_handle_event(ev, data)) {
@@ -704,6 +731,7 @@ PROCESS_THREAD(patient_process, ev, data)
        * duration or by connection state). */
       mqtt_service_recover();
     }
+
   }
 
   PROCESS_END();
