@@ -944,7 +944,7 @@ PROCESS_THREAD(patient_process, ev, data)
   triage_report_init();
 
   //  The device tries to register after 1 second it's on
-  etimer_set(&et, 60 * CLOCK_SECOND);
+  etimer_set(&et, 1 * CLOCK_SECOND);
     
   //  Set the resource URI /er/patient/registration/<DEVICE_ID>
   snprintf(REGISTRATION_URI, sizeof(REGISTRATION_URI), "/er/patient/registration/%i", DEVICE_ID);
