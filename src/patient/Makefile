@@ -38,6 +38,13 @@ CFLAGS += -DDEVICE_ID=$(DEVICE_ID)
 ADAPTIVE ?= 1
 CFLAGS += -DADAPTIVE_CONGESTION=$(ADAPTIVE)
 
+# Adaptive node failure, switched memorize localy the vitals and the report
+# values
+#   make ... BUFFERING=1   -> the mechanism is now online
+#   make ... BUFFERING=0   -> baseline, everything published regardless
+BUFFERING ?= 1
+CFLAGS += -DADAPTIVE_BUFFERING=$(BUFFERING)
+
 #	%TODO: This can be removed if needed. It's used to not treat warnings as errors, otherwise Contiki doesn't compile on my PC (ALE)
 CFLAGS += -Wno-error=discarded-qualifiers
 

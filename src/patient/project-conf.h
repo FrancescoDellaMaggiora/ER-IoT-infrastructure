@@ -56,6 +56,19 @@
 
 #define SERVER_ADDR "coap://[fd00:1::1]"
 
+/* Default route lifetime, shortened so a dead border router is detected
+ * within the timescale of a demo rather than after several minutes.
+ * Too aggressive a value drops the route on a single missed DIO. */
+#define RPL_CONF_DEFAULT_LIFETIME 3
+#define RPL_CONF_DEFAULT_LIFETIME_UNIT 10
+
+/* How long the node stays in the DAG after losing its preferred parent
+ * before leaving and dropping the default route. The rpl-lite default is
+ * 5 minutes: far too long to demonstrate a gateway failure, and it is
+ * this parameter - not the route lifetime above - that governs when
+ * uip_ds6_defrt_choose() finally returns NULL. */
+#define RPL_CONF_DELAY_BEFORE_LEAVING (90 * CLOCK_SECOND)
+
 
 #define REST_MAX_CHUNK_SIZE 256
 /*---------------------------------------------------------------------------*/

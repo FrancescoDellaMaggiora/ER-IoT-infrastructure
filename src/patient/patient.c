@@ -75,6 +75,13 @@ Patient node - application logic
  */
 #define ALERT_PUBLISH_INTERVAL      (1 * CLOCK_SECOND)
 
+/* Checked on its own timer, not from on_publish_slot(): that slot only
+ * fires when MQTT is idle and ready, so it becomes rarer exactly when
+ * the gateway is failing - the detector would starve precisely when it
+ * is needed. */
+#define GATEWAY_CHECK_INTERVAL (CLOCK_SECOND * 5)
+
+
 /*---------------------------------------------------------------------------*/
 /*
  * Buffer for the registration uri
@@ -96,6 +103,8 @@ static char client_id[BUFFER_SIZE];
 static char vitals_topic[BUFFER_SIZE];
 static char alert_topic[BUFFER_SIZE];
 
+static bool publish(uint8_t topic_id);
+
 #if PATIENT_SUBSCRIBE_ENABLED
 static char sub_topic[BUFFER_SIZE];
 #endif
@@ -109,6 +118,11 @@ static char sub_topic[BUFFER_SIZE];
 #define APP_BUFFER_SIZE 512
 static char vitals_app_buffer[APP_BUFFER_SIZE];
 static char alert_app_buffer[APP_BUFFER_SIZE];
+
+/*
+ * The measurement cycle runs on its own timer, independent of MQTT.
+ */
+static struct etimer measure_timer;
 
 /*---------------------------------------------------------------------------*/
 /*  The sequence number is associated to a measurement cycle, so vital +
@@ -151,12 +165,6 @@ process_event_t discharge_event;
  * Device and patient information
  */
 device_data_t patient_info;
-
-/*---------------------------------------------------------------------------*/
-/*
- * Input for the AI model Useless?
- */ 
-//static float model_input[VITALS_WINDOW * VITALS_FEATURES];
 
 /*---------------------------------------------------------------------------*/
 /*
@@ -257,7 +265,6 @@ static void congestion_update(bool publish_ok)
     }
   }
 }
-
 /*
  * Under congestion, low-priority patients stop sending ROUTINE vitals:
  * network triage mirroring clinical triage. Alerts are never suppressed
@@ -281,6 +288,195 @@ static bool should_suppress_vitals(void)
 #define should_suppress_vitals()  false
 
 #endif /* ADAPTIVE_CONGESTION */
+
+/*---------------------------------------------------------------------------*/
+/* Gateway failure handling (adaptive mechanism #2)                          */
+/*---------------------------------------------------------------------------*/
+
+#if ADAPTIVE_BUFFERING
+
+#include "net/ipv6/uip-ds6.h"
+
+/*
+ * Detecting a dead border router.
+ *
+ * Nothing notifies the node: the BR simply stops answering:
+ *   - the default route, which RPL removes once the BR's DIOs stop
+ *     arriving. Faster and more reliable than waiting for TCP to time
+ *     out, and it is the same check mqtt-service already uses to decide
+ *     whether it is worth connecting at all;
+ *
+ * Same asymmetric hysteresis as the congestion detector: react quickly
+ * to a loss, return slowly, so a single missed DIO does not flip the
+ * node into buffering mode.
+ */
+#define GATEWAY_LOST_THRESHOLD  3
+#define GATEWAY_BACK_THRESHOLD  2
+
+static uint8_t gw_missing_count = 0;
+static uint8_t gw_present_count = 0;
+static bool gateway_down = false;
+
+static void gateway_update(void)
+{
+  /*
+   * The border router is this network's default router: when it dies,
+   * RPL stops receiving its DIOs and removes the default route. Checking
+   * the routing table directly is faster and more reliable than waiting
+   * for TCP to time out on the MQTT connection, and it isolates the
+   * failure we actually care about - the gateway - from an unrelated
+   * broker outage, which would look identical through the MQTT state.
+   */
+  bool reachable = (uip_ds6_defrt_choose() != NULL);
+
+  LOG_INFO("Gateway check: reachable=%d, missing=%u, down=%d\n",
+           reachable, gw_missing_count, gateway_down);
+
+  if(reachable) {
+    gw_missing_count = 0;
+    if(gateway_down) {
+      gw_present_count++;
+      if(gw_present_count >= GATEWAY_BACK_THRESHOLD) {
+        gateway_down = false;
+        gw_present_count = 0;
+        LOG_INFO("Gateway back\n");
+      }
+    }
+  } else {
+    gw_present_count = 0;
+    if(!gateway_down) {
+      gw_missing_count++;
+      if(gw_missing_count >= GATEWAY_LOST_THRESHOLD) {
+        gateway_down = true;
+        gw_missing_count = 0;
+        LOG_WARN("Gateway unreachable: buffering readings locally\n");
+      }
+    }
+  }
+}
+
+static bool gateway_is_down(void)
+{
+  return gateway_down;
+}
+
+/*
+ * Retention buffers.
+ *
+ * Readings taken while the gateway is down are kept here and replayed
+ * when it comes back. What is stored is the RAW SNAPSHOT (vitals plus
+ * the alert bitmask), not the built JSON.
+ *
+ * Vitals and alerts are kept apart so a burst of routine readings can
+ * never push an alert out of the window - the two fill up at their own
+ * pace and the alert buffer only grows when something is actually wrong.
+ */
+#define RETENTION_CAPACITY 16
+
+typedef struct {
+  patient_vitals_t vitals;
+  uint8_t alerts;              /* active_alerts at the time of the reading */
+} buffered_reading_t;
+
+static buffered_reading_t vitals_retention[RETENTION_CAPACITY];
+static uint8_t vitals_ret_head = 0;
+static uint8_t vitals_ret_count = 0;
+
+static buffered_reading_t alert_retention[RETENTION_CAPACITY];
+static uint8_t alert_ret_head = 0;
+static uint8_t alert_ret_count = 0;
+
+/* 
+ * Dropped-on-overflow counters: the metric that makes the mechanism
+ * measurable against the baseline build, where EVERY reading taken
+ * during an outage is lost.
+ */
+static uint16_t vitals_dropped = 0;
+static uint16_t alerts_dropped = 0;
+
+static void
+retention_push(buffered_reading_t *buf, uint8_t *head, uint8_t *count,
+               uint16_t *dropped, const patient_vitals_t *v, uint8_t alerts)
+{
+  buf[*head].vitals = *v;
+  buf[*head].alerts = alerts;
+  *head = (uint8_t)((*head + 1) % RETENTION_CAPACITY);
+
+  if(*count < RETENTION_CAPACITY) {
+    (*count)++;
+  } else {
+    /* Full: the write above overwrote the oldest entry, and head now
+     * points at the new oldest. Newest-wins on purpose - during a long
+     * outage the recent clinical picture matters more than the stale one. */
+    (*dropped)++;
+  }
+}
+
+/* 
+ * Reads the oldest entry WITHOUT removing it. The entry is dropped only
+ * once the publish is accepted (retention_commit), so a refused publish
+ * does not lose the reading - which would defeat the whole mechanism.
+ */
+static bool retention_peek(
+  const buffered_reading_t *buf,
+  uint8_t head,
+  uint8_t count,
+  buffered_reading_t *out)
+{
+  if(count == 0) {
+    return false;
+  }
+
+  *out = buf[(head + RETENTION_CAPACITY - count) % RETENTION_CAPACITY];
+  return true;
+}
+
+static void retention_commit(uint8_t *count)
+{
+  if(*count > 0) {
+    (*count)--;
+  }
+}
+
+static bool retention_pending(void)
+{
+  return vitals_ret_count > 0 || alert_ret_count > 0;
+}
+
+static bool publish_buffered(
+  uint8_t topic_id,
+  const buffered_reading_t *entry)
+{
+  /* publish() and the payload builders read the globals, so the stored
+   * snapshot is swapped in for the duration of the call and restored
+   * afterwards. Safe because nothing runs in between: this is a single
+   * protothread, not preemptive. */
+  patient_vitals_t saved_vitals = current_vitals;
+  uint8_t saved_alerts = active_alerts;
+  bool ok;
+
+  current_vitals = entry->vitals;
+  active_alerts = entry->alerts;
+
+  ok = publish(topic_id);
+
+  current_vitals = saved_vitals;
+  active_alerts = saved_alerts;
+
+  return ok;
+}
+
+#else  /* ADAPTIVE_BUFFERING == 0 */
+
+/* Baseline build: no detection, readings published (and lost) as usual. */
+#define gateway_update()   do { } while(0)
+#define gateway_is_down()  false
+#define retention_pending()  false
+typedef struct { int unused; } buffered_reading_t;
+
+#endif /* ADAPTIVE_BUFFERING */
+
+
 
 /*---------------------------------------------------------------------------*/
 PROCESS(patient_process, "Patient node");
@@ -736,7 +932,7 @@ static int build_payload_alert(char *buffer, int buffer_size)
  *  (before it was publish(void)). Moreover, it uses 
  *  functions to produce the correct SenML payload.
  */
-static void publish(uint8_t topic_id) {
+static bool publish(uint8_t topic_id) {
 
   char *topic;
   char *buf;
@@ -753,7 +949,7 @@ static void publish(uint8_t topic_id) {
 
     if(!build_payload_vitals(buf, APP_BUFFER_SIZE)) {
       LOG_ERR("Vitals payload construction fail\n");
-      return;
+      return false;
     }
   } else if(topic_id == TOPIC_MSG_ALERT) { //  If topic = "alert"
 
@@ -763,12 +959,12 @@ static void publish(uint8_t topic_id) {
 
     if(!build_payload_alert(buf, APP_BUFFER_SIZE)) {
       LOG_ERR("Alert payload construction fail\n");
-      return;
+      return false;
     }
   } else {
 
     LOG_ERR("Unknown MQTT topic id: %u\n", topic_id);
-    return;
+    return false;
   }
 
   mqtt_status_t status = mqtt_service_publish(topic, (uint8_t *)buf, strlen(buf), qos);
@@ -780,11 +976,12 @@ static void publish(uint8_t topic_id) {
   if(status != MQTT_STATUS_OK) {
     LOG_WARN("Publish on '%s' REFUSED, status %d (payload %u B)\n",
             topic, status, (unsigned)strlen(buf));
-    return;
+    return false;
   }
 
   LOG_DBG("Publish on '%s'!\n", topic);
-  }
+  return true;
+}
 
 /*---------------------------------------------------------------------------*/
 /* MQTT service callbacks                                                    */
@@ -811,49 +1008,125 @@ static void on_mqtt_connected(void)
  * was refused just like a 180 B one). So the alert is deferred to the
  * next slot rather than sent back-to-back with the vitals.
  */
-
 static bool alert_pending = false;
 
-static clock_time_t on_publish_slot(void) {
+/* 
+ * While draining the backlog, come back quickly instead of waiting the
+ * full routine interval: the MQTT out queue holds one message at a time,
+ * so the buffer can only be emptied one entry per slot.
+ */
+#define RETENTION_FLUSH_INTERVAL (2 * CLOCK_SECOND)
+
+/*
+ * Runs one measurement cycle and decides what to do with the reading:
+ * publish it, retain it (gateway down) or suppress it (congestion).
+ *
+ * Driven by measure_timer, not by the MQTT service: tying it to the
+ * connection being idle meant the node stopped measuring exactly when
+ * the gateway failed - the moment retention matters most. Publishing
+ * may now be refused if a previous message is still in flight, which is
+ * tolerable for routine vitals and handled explicitly when flushing the
+ * backlog (the entry is committed only on success).
+ *
+ */
+static clock_time_t measure_and_publish(void) {
+
+  buffered_reading_t entry;
+
+  /* 
+   * Gateway check comes first: with a dead gateway nothing can leave the
+   * node, so publishing a deferred alert here would just hang on a
+   * connection that is gone - and the node would never get back to
+   * measuring or buffering.
+   */
+  if(gateway_is_down()) {
+
+    /* 
+     * An alert was waiting for its slot when the gateway died: retain it
+     * rather than losing it. current_vitals still holds the values that
+     * raised it, since no measurement cycle has run since.
+     */
+    if(alert_pending) {
+      retention_push(alert_retention, &alert_ret_head, &alert_ret_count,
+                     &alerts_dropped, &current_vitals, active_alerts);
+      alert_pending = false;
+      LOG_DBG("Gateway down: deferred alert retained\n");
+    }
+
+    LOG_DBG("Starting measurement cycle\n");
+    patient_measurement_cycle();
+    seq_nr_value++;
+
+    retention_push(vitals_retention, &vitals_ret_head, &vitals_ret_count,
+                   &vitals_dropped, &current_vitals, active_alerts);
+
+    if(active_alerts != 0) {
+      retention_push(alert_retention, &alert_ret_head, &alert_ret_count,
+                     &alerts_dropped, &current_vitals, active_alerts);
+    }
+
+    LOG_DBG("Gateway down: buffered (v=%u a=%u, dropped v=%u a=%u)\n",
+            vitals_ret_count, alert_ret_count, vitals_dropped, alerts_dropped);
+
+    return DEFAULT_PUBLISH_INTERVAL;
+  }
+
+  /* From here on the gateway is reachable. */
 
   if(alert_pending) {
-    /* The previous slot raised an alert. Publish it now and skip the
-     * measurement cycle: the alert must carry the values that actually
-     * triggered it, not fresher ones that may be back in range. */
     LOG_DBG("Publishing deferred alert\n");
     publish(TOPIC_MSG_ALERT);
     alert_pending = false;
     return ALERT_PUBLISH_INTERVAL;
   }
-  //  "patient_measurement_cycle()" checks sensor values
+
+  /* Backlog before new readings, oldest entry first, ALERTS BEFORE
+   * VITALS: a deterioration that happened during the outage must reach
+   * the cloud before the routine readings that surround it. */
+  if(retention_pending()) {
+
+    if(retention_peek(alert_retention, alert_ret_head, alert_ret_count, &entry)) {
+      if(publish_buffered(TOPIC_MSG_ALERT, &entry)) {
+        retention_commit(&alert_ret_count);
+        LOG_DBG("Flushed buffered alert (%u left)\n", alert_ret_count);
+      }
+    } else if(retention_peek(vitals_retention, vitals_ret_head, vitals_ret_count, &entry)) {
+      if(publish_buffered(TOPIC_MSG_VITALS, &entry)) {
+        retention_commit(&vitals_ret_count);
+        LOG_DBG("Flushed buffered vitals (%u left)\n", vitals_ret_count);
+      }
+    }
+
+    return RETENTION_FLUSH_INTERVAL;
+  }
+
   LOG_DBG("Starting measurement cycle\n");
   patient_measurement_cycle();
 
-  
-
-  #ifdef ADAPTIVE_CONGESTION 
-    if(should_suppress_vitals()) {
-      LOG_DBG("Congested, low-priority vitals suppressed\n");
-    } else {
-  #endif
-    
   seq_nr_value++;
-  LOG_DBG("Publishing vitals\n");
-  publish(TOPIC_MSG_VITALS);
 
-  #ifdef ADAPTIVE_CONGESTION 
-    }
-  #endif
+  if(should_suppress_vitals()) {
+    LOG_DBG("Congested, low-priority vitals suppressed\n");
+  } else {
+    LOG_DBG("Publishing vitals\n");
+    publish(TOPIC_MSG_VITALS);
+  }
 
-  //  If alerts are detected they get published
   if(active_alerts != 0) {
     LOG_DBG("Alerts detected, deferring to next slot\n");
     alert_pending = true;
     return ALERT_PUBLISH_INTERVAL;
   }
-  
 
-  //  In case of alert publish every second instead of every 30 seconds
+  return DEFAULT_PUBLISH_INTERVAL;
+}
+
+/*
+ * MQTT no longer drives the cycle - measure_timer does. This callback
+ * exists only to satisfy the service's interface.
+ */
+static clock_time_t on_publish_slot(void)
+{
   return DEFAULT_PUBLISH_INTERVAL;
 }
 /*---------------------------------------------------------------------------*/
@@ -970,6 +1243,7 @@ void print_patient_info() {
 // RESOURCE HANDLING FUNCTIONS
 /*---------------------------------------------------------------------------*/
 
+static struct etimer gateway_timer;
 static struct etimer et;
 static int flagRegistration = 0;
 
@@ -1031,9 +1305,9 @@ PROCESS_THREAD(patient_process, ev, data)
   vitals_buffer_init();
   triage_report_init();
 
-  //  The device tries to register after 1 second it's on
+  //  The device tries to register after 1 minute it's on
   etimer_set(&et, 60 * CLOCK_SECOND);
-    
+
   //  Set the resource URI /er/patient/registration/<DEVICE_ID>
   snprintf(REGISTRATION_URI, sizeof(REGISTRATION_URI), "/er/patient/registration/%i", DEVICE_ID);
 
@@ -1106,10 +1380,30 @@ PROCESS_THREAD(patient_process, ev, data)
   mqtt_service_init(&patient_process, client_id,
                     on_mqtt_connected, on_publish_slot, on_mqtt_incoming);
 
+
+  //Timer to check the gateway status
+  etimer_set(&gateway_timer, GATEWAY_CHECK_INTERVAL);
+  LOG_INFO("Gateway timer armed, interval=%lu ticks\n",
+           (unsigned long)GATEWAY_CHECK_INTERVAL);
+
+  etimer_set(&measure_timer, DEFAULT_PUBLISH_INTERVAL);
+
   /* Main loop */
   while(1) {
 
     PROCESS_YIELD();
+
+    if(ev == PROCESS_EVENT_TIMER && data == &gateway_timer) {
+      gateway_update();
+      etimer_reset(&gateway_timer);
+      continue;
+    }
+
+    if(ev == PROCESS_EVENT_TIMER && data == &measure_timer) {
+      clock_time_t next = measure_and_publish();
+      etimer_set(&measure_timer, next);
+      continue;
+    }
 
     //  A discharge request triggers this event
     if(ev == discharge_event) {
