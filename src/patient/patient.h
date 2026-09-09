@@ -70,6 +70,7 @@
 
 #define PUB_TOPIC_NAME "er/patient"
 
+#define PATIENT_REGISTRATION "registration"
 #define PATIENT_VITALS "vitals"
 #define PATIENT_ALERT "alert"
 
@@ -78,6 +79,7 @@
 //  differentiate between topics and to build the correct payload
 #define TOPIC_MSG_VITALS 0
 #define TOPIC_MSG_ALERT 1
+#define TOPIC_MSG_REGISTRATION 2
 
 /*---------------------------------------------------------------------------*/
 

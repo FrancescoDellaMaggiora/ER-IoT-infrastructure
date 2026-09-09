@@ -6,7 +6,26 @@ Patient node - application logic
 
   Its aim is to simulate a patient's clinical data and publish it.
 
-  The topic format is: er/patient/<PATIENT_ID>/vitals.
+  MQTT topics are: 
+  /er/patient/<PATIENT_ID>/registration
+  /er/patient/<PATIENT_ID>/vitals
+  /er/patient/<PATIENT_ID>/alert
+
+  The device publishes on the registration topic everytime it connects (in function on_mqtt_connected()).
+  The payload published on the registration topic is the following JSON file (it only writes the attached sensors):
+
+    {
+      "DEVICE_ID": <number>,
+      "PATIENT_ID": <number>,
+      "SENSORS": [
+        "heart-rate",
+        "spo2",
+        "temperature",
+        "sys-pressure",
+        "dia-pressure",
+        "respiration-rate"
+      ]
+    }
 
   PATIENT_ID is learnt at build time:
     make TARGET=<target> PATIENT_ID=<number>
@@ -95,6 +114,7 @@ static char client_id[BUFFER_SIZE];
 
 static char vitals_topic[BUFFER_SIZE];
 static char alert_topic[BUFFER_SIZE];
+static char registration_topic[BUFFER_SIZE];
 
 #if PATIENT_SUBSCRIBE_ENABLED
 static char sub_topic[BUFFER_SIZE];
@@ -102,13 +122,14 @@ static char sub_topic[BUFFER_SIZE];
 
 /*---------------------------------------------------------------------------*/
 /*
- * The two MQTT payload buffer.
+ * The MQTT payload buffers.
  * We will need to increase if we start publishing more data.
- * We need 2 separete buffer because otherwise one buffer will be completed override.
+ * We need separate buffers because otherwise one buffer would be completed overrided.
  */
 #define APP_BUFFER_SIZE 512
 static char vitals_app_buffer[APP_BUFFER_SIZE];
 static char alert_app_buffer[APP_BUFFER_SIZE];
+static char registration_app_buffer[APP_BUFFER_SIZE];
 
 /*---------------------------------------------------------------------------*/
 /*  The sequence number is associated to a measurement cycle, so vital +
@@ -242,6 +263,15 @@ static int construct_pub_topic(void)
   if(len < 0 || len >= BUFFER_SIZE) {
     LOG_INFO("Alert topic is too long (topic_len: %d, max_size: %d)\n",
              len, BUFFER_SIZE);
+    return 0;
+  }
+
+  //  Fill registration topic
+  len = snprintf(registration_topic, BUFFER_SIZE, "%s/%ld/%s", PUB_TOPIC_NAME,
+               patient_info.patient_id, PATIENT_REGISTRATION);
+
+  if(len < 0 || len >= BUFFER_SIZE) {
+    LOG_INFO("Registration topic is too long\n");
     return 0;
   }
 
@@ -656,6 +686,57 @@ static int build_payload_alert(char *buffer, int buffer_size)
   return senml_end(&b, "build_payload_alert()");
 }
 
+static int build_payload_registration(char *buffer, int buffer_size)
+{
+  int len;
+  int first_sensor = 1;
+
+  len = snprintf(buffer, buffer_size,
+                 "{"
+                 "\"DEVICE_ID\":%d,"
+                 "\"SENSORS\":[",
+                 DEVICE_ID);
+
+  if(len < 0 || len >= buffer_size) {
+    return 0;
+  }
+
+  #define ADD_SENSOR(flag, name)                                      \
+    do {                                                              \
+      if(attached_sensors & (flag)) {                                 \
+        int n = snprintf(buffer + len, buffer_size - len,             \
+                        "%s\"%s\"",                                   \
+                        first_sensor ? "" : ",", name);               \
+        if(n < 0 || n >= buffer_size - len) {                         \
+          return 0;                                                   \
+        }                                                             \
+        len += n;                                                     \
+        first_sensor = 0;                                             \
+      }                                                               \
+    } while(0)
+
+    ADD_SENSOR(SENSOR_HEART_RATE,          "heart-rate");
+    ADD_SENSOR(SENSOR_SPO2,                "spo2");
+    ADD_SENSOR(SENSOR_TEMPERATURE,         "temperature");
+    ADD_SENSOR(SENSOR_PRESSURE_SYSTOLIC,   "sys-pressure");
+    ADD_SENSOR(SENSOR_PRESSURE_DIASTOLIC,   "dia-pressure");
+    ADD_SENSOR(SENSOR_RESPIRATION_RATE,    "respiration-rate");
+
+  #undef ADD_SENSOR
+
+  {
+    int n = snprintf(buffer + len, buffer_size - len, "]}");
+
+    if(n < 0 || n >= buffer_size - len) {
+      return 0;
+    }
+
+    len += n;
+  }
+
+  return len;
+}
+
 /*---------------------------------------------------------------------------*/
 /* Publishing                                                                */
 /*---------------------------------------------------------------------------*/
@@ -672,7 +753,6 @@ static void publish(uint8_t topic_id) {
 
   //  Payload construction
 
-  
   if(topic_id == TOPIC_MSG_VITALS) { //  If topic = "vitals"
 
     topic = vitals_topic;
@@ -691,6 +771,16 @@ static void publish(uint8_t topic_id) {
 
     if(!build_payload_alert(buf, APP_BUFFER_SIZE)) {
       LOG_ERR("Alert payload construction fail\n");
+      return;
+    }
+  } else if(topic_id == TOPIC_MSG_REGISTRATION) { //  If topic = "registration"
+    topic = registration_topic;
+    qos = MQTT_QOS_LEVEL_1;
+    buf = registration_app_buffer;
+
+    int len = build_payload_registration(buf, APP_BUFFER_SIZE);
+    if(len <= 0) {
+      LOG_ERR("Registration payload construction fail\n");
       return;
     }
   } else {
@@ -720,6 +810,9 @@ static void publish(uint8_t topic_id) {
  */
 static void on_mqtt_connected(void)
 {
+  //  Each time the device connects it publishes on the registration topic
+  publish(TOPIC_MSG_REGISTRATION);
+
   #if PATIENT_SUBSCRIBE_ENABLED
     mqtt_service_subscribe(sub_topic);
   #else
@@ -944,7 +1037,7 @@ PROCESS_THREAD(patient_process, ev, data)
   triage_report_init();
 
   //  The device tries to register after 1 second it's on
-  etimer_set(&et, 1 * CLOCK_SECOND);
+  etimer_set(&et, 60 * CLOCK_SECOND);
     
   //  Set the resource URI /er/patient/registration/<DEVICE_ID>
   snprintf(REGISTRATION_URI, sizeof(REGISTRATION_URI), "/er/patient/registration/%i", DEVICE_ID);
