@@ -20,6 +20,9 @@ public class SenMLRecord {
     @JsonProperty("v")
     private double value;
 
+    @JsonProperty("t")
+    private Double time;
+
     // Jackson requires a no-arg constructor to instantiate the object
     // before populating the fields.
     public SenMLRecord() {}
@@ -32,6 +35,9 @@ public class SenMLRecord {
 
     public double getValue() { return value; }
     public void setValue(double value) { this.value = value; }
+
+    public Double getTime() { return time; }
+    public void setTime(double time) { this.time = time; }
 
     @Override
     public String toString() {

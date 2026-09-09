@@ -31,6 +31,20 @@ PROJECT_SOURCEFILES += triage_model.c
 DEVICE_ID ?= 1
 CFLAGS += -DDEVICE_ID=$(DEVICE_ID)
 
+# Adaptive congestion handling, switched at build time so the two
+# configurations of the stress test are genuinely different binaries:
+#   make ... ADAPTIVE=1   -> low-priority vitals suppressed under congestion
+#   make ... ADAPTIVE=0   -> baseline, everything published regardless
+ADAPTIVE ?= 1
+CFLAGS += -DADAPTIVE_CONGESTION=$(ADAPTIVE)
+
+# Adaptive node failure, switched memorize localy the vitals and the report
+# values
+#   make ... BUFFERING=1   -> the mechanism is now online
+#   make ... BUFFERING=0   -> baseline, everything published regardless
+BUFFERING ?= 1
+CFLAGS += -DADAPTIVE_BUFFERING=$(BUFFERING)
+
 #	%TODO: This can be removed if needed. It's used to not treat warnings as errors, otherwise Contiki doesn't compile on my PC (ALE)
 CFLAGS += -Wno-error=discarded-qualifiers
 
