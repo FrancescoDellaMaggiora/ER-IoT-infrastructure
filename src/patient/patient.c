@@ -109,6 +109,17 @@ static bool publish(uint8_t topic_id);
 static char sub_topic[BUFFER_SIZE];
 #endif
 
+/*
+ * Age of the reading being published, in seconds.
+ *
+ * Zero for a live reading; set by publish_buffered() to the age of a
+ * replayed one. The payload builders read it the same way they read
+ * current_vitals - a global rather than a parameter, because publish()
+ * sits between them and threading it through would mean changing every
+ * signature for a value that is zero in the normal case.
+ */
+static clock_time_t publish_taken_at = 0;
+
 /*---------------------------------------------------------------------------*/
 /*
  * The two MQTT payload buffer.
@@ -376,6 +387,7 @@ static bool gateway_is_down(void)
 typedef struct {
   patient_vitals_t vitals;
   uint8_t alerts;              /* active_alerts at the time of the reading */
+  clock_time_t taken_at;       /* clock_seconds() when the reading was taken */
 } buffered_reading_t;
 
 static buffered_reading_t vitals_retention[RETENTION_CAPACITY];
@@ -400,6 +412,7 @@ retention_push(buffered_reading_t *buf, uint8_t *head, uint8_t *count,
 {
   buf[*head].vitals = *v;
   buf[*head].alerts = alerts;
+  buf[*head].taken_at = clock_seconds();
   *head = (uint8_t)((*head + 1) % RETENTION_CAPACITY);
 
   if(*count < RETENTION_CAPACITY) {
@@ -453,15 +466,18 @@ static bool publish_buffered(
    * protothread, not preemptive. */
   patient_vitals_t saved_vitals = current_vitals;
   uint8_t saved_alerts = active_alerts;
+  clock_time_t saved_taken_at = publish_taken_at;
   bool ok;
 
   current_vitals = entry->vitals;
   active_alerts = entry->alerts;
+  publish_taken_at = entry->taken_at;
 
   ok = publish(topic_id);
 
   current_vitals = saved_vitals;
   active_alerts = saved_alerts;
+  publish_taken_at = saved_taken_at;
 
   return ok;
 }
@@ -764,6 +780,7 @@ static void patient_measurement_cycle(void)
 //  depend on mounted sensors, active alerts, ...
 
 
+
 typedef struct {
   char *buf;        /* current write position          */
   int remaining;    /* space left, including the '\0'  */
@@ -824,6 +841,34 @@ static void senml_add_int(senml_builder_t *b, const char *name, const char *unit
   b->first = false;
 }
 
+/*
+ * Adding the t kay
+ *
+ * Live readings emit no 't' at all: age zero means "now", which is the
+ * default the receiver already assumes.
+ */
+static void
+senml_add_age(senml_builder_t *b, clock_time_t taken_at)
+{
+  long age;
+
+  if(taken_at == 0) {
+    return;      /* live reading */
+  }
+
+  age = (long)clock_seconds() - (long)taken_at;
+
+  if(age <= 0) {
+    return;      /* same second, nothing to correct */
+  }
+
+  if(!b->first) {
+    senml_append(b, ",");
+  }
+  senml_append(b, "{\"t\":-%ld}", age);
+  b->first = false;
+}
+
 /* 
  * Append one record with a float value printed with one decimal.
  * NOTE for the real nRF52840 deployment: newlib-nano's printf does not
@@ -862,6 +907,7 @@ static int build_payload_vitals(char *buffer, int buffer_size)
   senml_builder_t b;
 
   senml_begin(&b, buffer, buffer_size);
+  senml_add_age(&b, publish_taken_at);
 
   //  Sensor attachment checks
   if(attached_sensors & SENSOR_HEART_RATE) {
@@ -895,6 +941,7 @@ static int build_payload_alert(char *buffer, int buffer_size)
   senml_builder_t b;
 
   senml_begin(&b, buffer, buffer_size);
+  senml_add_age(&b, publish_taken_at);
 
   //  Current alert checks
   if(active_alerts & ALERT_HEART_RATE) {
@@ -1074,10 +1121,13 @@ static clock_time_t measure_and_publish(void) {
   /* From here on the gateway is reachable. */
 
   if(alert_pending) {
-    LOG_DBG("Publishing deferred alert\n");
-    publish(TOPIC_MSG_ALERT);
-    alert_pending = false;
-    return ALERT_PUBLISH_INTERVAL;
+    if(mqtt_service_ready()) {
+      LOG_DBG("Publishing deferred alert\n");
+      publish(TOPIC_MSG_ALERT);
+      alert_pending = false;
+    } else {
+      LOG_DBG("MQTT busy, alert stays pending\n");
+    }
   }
 
   /* Backlog before new readings, oldest entry first, ALERTS BEFORE
@@ -1085,6 +1135,10 @@ static clock_time_t measure_and_publish(void) {
    * the cloud before the routine readings that surround it. */
   if(retention_pending()) {
 
+    if(!mqtt_service_ready()) {
+      return RETENTION_FLUSH_INTERVAL;   /* retry next slot */
+    }
+    
     if(retention_peek(alert_retention, alert_ret_head, alert_ret_count, &entry)) {
       if(publish_buffered(TOPIC_MSG_ALERT, &entry)) {
         retention_commit(&alert_ret_count);
@@ -1106,7 +1160,15 @@ static clock_time_t measure_and_publish(void) {
   seq_nr_value++;
 
   if(should_suppress_vitals()) {
+    
     LOG_DBG("Congested, low-priority vitals suppressed\n");
+  } else if(!mqtt_service_ready()) {
+    
+    /* The previous message is still going out. Attempting anyway just
+     * gets refused and keeps the queue from draining - decoupling the
+     * cycle from MQTT removed the natural back-pressure the service
+     * used to provide, so it has to be checked explicitly. */
+    LOG_DBG("MQTT busy, skipping this publish\n");
   } else {
     LOG_DBG("Publishing vitals\n");
     publish(TOPIC_MSG_VITALS);

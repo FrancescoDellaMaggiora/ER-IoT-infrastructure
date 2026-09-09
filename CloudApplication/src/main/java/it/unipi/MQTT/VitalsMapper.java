@@ -17,9 +17,17 @@ final class VitalsMapper {
         Integer pressureSystolic = null;
         Integer pressureDiastolic = null;
         Integer resprationRate = null;
-
+        
+        Instant timestamp = Instant.now();
         for (SenMLRecord r : records) {
+
+            if (r.getTime() != null && Math.abs(r.getTime()) < (1L << 28)) {
+                timestamp = timestamp.plusSeconds(r.getTime().longValue());
+                continue;
+            }
+
             String name = r.getName();
+
             if (name.endsWith(ALERT_SUFFIX)) {
                 name = name.substring(0, name.length() - ALERT_SUFFIX.length());
             }
@@ -40,16 +48,15 @@ final class VitalsMapper {
                 case "dia-pressure":
                     pressureDiastolic = (int) Math.round(r.getValue());
                     break;
-                case "rr":
+                case "respiration_rate":
                     resprationRate = (int) Math.round(r.getValue());
                 default:
-                    // TODO: log, don't silently ignore an unrecognised field
                     break;
             }
         }
 
         return new Vitals(
-                patientId, Instant.now(),
+                patientId, timestamp,
                 heartRate, spo2, temperature,
                 pressureSystolic, pressureDiastolic,
                 resprationRate);
