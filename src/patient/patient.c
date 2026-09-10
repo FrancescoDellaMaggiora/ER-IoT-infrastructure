@@ -85,7 +85,7 @@ Patient node - application logic
  * on_publish_slot() returns the delay until the next slot.
  * Publish every 30 seconds
  */
-#define DEFAULT_PUBLISH_INTERVAL    (10 * CLOCK_SECOND)
+#define DEFAULT_PUBLISH_INTERVAL    (1 * CLOCK_SECOND)
 
 /*
  * Alert Interval
@@ -165,6 +165,7 @@ static struct etimer measure_timer;
  *  As of now, this number never gets transmitted anywhere
  */
 uint16_t seq_nr_value = 0;
+uint16_t seq_nr_alert = 0;
 
 /*---------------------------------------------------------------------------*/
 /*
@@ -215,22 +216,43 @@ static coap_endpoint_t server_addr;
 static coap_endpoint_t nurse_addr;
 
 /**
- * Local variable to measure RTT
+ * Variable to measure RTT
  */
 clock_time_t start_RTT;
 
+/**
+ *Variable to save last RTT
+ */
+clock_time_t last_RTT = 0;
+
 /*
  * Simulation Parameters
+ * 
+ * If the macro URGENT is set to 1, the vitals converge fast to red code.
+ * Otherwhise, whenever the marco URGENT is set to 0 the vitals converge fast to white code.
  */
+
+#if URGENT
+const simulation_parameters_t SIMULATION_VALUES[SIM_PARAM_COUNT] = {
+  /* baseline, noise_amp, pull_pct */
+  {  72.0f,      3.3f,      1.5f },   /* SIM_HR   */
+  {  98.0f,      4.5f,      2.5f },   /* SIM_SPO2 */
+  {  36.0f,      4.3f,      2.0f },   /* SIM_TEMP */
+  { 115.0f,      6.9f,      2.0f },   /* SIM_SBP  */
+  {  61.0f,      6.3f,      2.0f },   /* SIM_DBP  */
+  {  14.0f,      2.5f,      2.0f },   /* SIM_RR   */
+};
+# else
 const simulation_parameters_t SIMULATION_VALUES[SIM_PARAM_COUNT] = {
   /* baseline, noise_amp, pull_pct */
   {  72.0f,      3.3f,      15.0f },   /* SIM_HR   */
   {  98.0f,      0.5f,      25.0f },   /* SIM_SPO2 */
   {  36.0f,      0.3f,      20.0f },   /* SIM_TEMP */
-  { 115.0f,      6.9f,      20.0f },   /* SIM_SBP  */
-  {  61.0f,      6.3f,      20.0f },   /* SIM_DBP  */
+  { 115.0f,      0.9f,      20.0f },   /* SIM_SBP  */
+  {  61.0f,      0.3f,      20.0f },   /* SIM_DBP  */
   {  14.0f,      0.5f,      20.0f },   /* SIM_RR   */
 };
+#endif
 
 /*
  * Simulation state kept in floating point.
@@ -269,9 +291,12 @@ static uint8_t candidate_streak = 0;
  * The thresholds are asymmetric on purpose: entering quickly protects
  * the channel, leaving slowly avoids flapping back into congestion on a
  * single lucky success.
+ *
+ * Another way to find out a congestion is when a alert message is too slow.
  */
 #define CONGESTION_ENTER_THRESHOLD  3
 #define CONGESTION_EXIT_THRESHOLD   5
+#define CONGESTION_MAX_LATENCY 3
 
 static uint8_t consecutive_failures = 0;
 static uint8_t consecutive_successes = 0;
@@ -300,6 +325,9 @@ static void congestion_update(bool publish_ok)
       }
     }
   }
+
+  if (last_RTT >= CONGESTION_MAX_LATENCY * CLOCK_SECOND )
+    network_congested = true;
 }
 /*
  * Under congestion, low-priority patients stop sending ROUTINE vitals:
@@ -1116,13 +1144,11 @@ static bool publish(uint8_t topic_id) {
 
   //  Payload construction
 
-  start_RTT = clock_time();
-
   if(topic_id == TOPIC_MSG_VITALS) { //  If topic = "vitals"
 
     topic = vitals_topic;
     buf = vitals_app_buffer;
-    qos = MQTT_QOS_LEVEL_1;
+    qos = MQTT_QOS_LEVEL_0;
 
     if(!build_payload_vitals(buf, APP_BUFFER_SIZE)) {
       LOG_ERR("Vitals payload construction fail\n");
@@ -1130,6 +1156,7 @@ static bool publish(uint8_t topic_id) {
     }
   } else if(topic_id == TOPIC_MSG_ALERT) { //  If topic = "alert"
 
+    start_RTT = clock_time();
     topic = alert_topic;
     qos = MQTT_QOS_LEVEL_1;
     buf = alert_app_buffer;
@@ -1166,7 +1193,11 @@ static bool publish(uint8_t topic_id) {
     return false;
   }
 
-  LOG_DBG("Publish on '%s'!\n", topic);
+  if (topic_id == TOPIC_MSG_VITALS) {
+    LOG_INFO("Published vitals number %u\n", seq_nr_value);
+  } else {
+    LOG_DBG("Publish on '%s'!\n", topic);
+  }
   return true;
 }
 
@@ -1251,6 +1282,7 @@ static clock_time_t measure_and_publish(void) {
                    &vitals_dropped, &current_vitals, active_alerts);
 
     if(active_alerts != 0) {
+      seq_nr_alert++;
       retention_push(alert_retention, &alert_ret_head, &alert_ret_count,
                      &alerts_dropped, &current_vitals, active_alerts);
     }
@@ -1319,6 +1351,7 @@ static clock_time_t measure_and_publish(void) {
   if(active_alerts != 0) {
     LOG_INFO("Alerts detected, deferring to next slot\n");
     alert_pending = true;
+    seq_nr_alert++;
     return ALERT_PUBLISH_INTERVAL;
   }
 

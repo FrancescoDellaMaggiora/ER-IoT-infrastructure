@@ -45,6 +45,10 @@ CFLAGS += -DADAPTIVE_CONGESTION=$(ADAPTIVE)
 BUFFERING ?= 1
 CFLAGS += -DADAPTIVE_BUFFERING=$(BUFFERING)
 
+URGENT ?= 1
+CFLAGS += -DURGENT=$(URGENT)
+
+
 #	%TODO: This can be removed if needed. It's used to not treat warnings as errors, otherwise Contiki doesn't compile on my PC (ALE)
 CFLAGS += -Wno-error=discarded-qualifiers
 

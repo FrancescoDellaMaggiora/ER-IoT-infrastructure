@@ -192,9 +192,9 @@ have_connectivity(void)
  * because topics are an application concern.
  */
 
-static clock_time_t rtt;
+extern clock_time_t last_RTT;
 extern clock_time_t start_RTT;
-extern uint16_t seq_nr_value;
+extern uint16_t seq_nr_alert;
 
 static void
 mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
@@ -257,8 +257,8 @@ mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
     break;
   }
   case MQTT_EVENT_PUBACK: {
-    rtt = clock_time() - start_RTT;
-    LOG_INFO("Publishing complete, sequence_number = %u, RTT = %li, CLOCK_SECONDS = %i.\n",seq_nr_value, rtt, CLOCK_SECOND);
+    last_RTT = clock_time() - start_RTT;
+    LOG_INFO("Publishing complete, sequence_number = %u, RTT = %li, CLOCK_SECONDS = %i.\n",seq_nr_alert, last_RTT, CLOCK_SECOND);
     break;
   }
   default:
