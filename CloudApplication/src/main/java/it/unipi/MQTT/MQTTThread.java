@@ -78,9 +78,19 @@ public class MQTTThread extends Thread implements MqttCallback {
         } catch (MqttException e) {
             throw new RuntimeException(e);
         }
+
         mqttClient.setCallback( this );
+
+        /* 
+         * Paho does NOT reconnect on its own. Now
+         * subscriptions are restored
+         * automatically along with the connection.
+         */
+        MqttConnectOptions options = new MqttConnectOptions();
+        options.setAutomaticReconnect(true);
+        options.setCleanSession(false);
         try {
-            mqttClient.connect();
+            mqttClient.connect(options);
             mqttClient.subscribe(this.topicVitals);
             mqttClient.subscribe(this.topicAlert);
         } catch (MqttException e) {
