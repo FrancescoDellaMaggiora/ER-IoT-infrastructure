@@ -85,7 +85,7 @@ Patient node - application logic
  * on_publish_slot() returns the delay until the next slot.
  * Publish every 30 seconds
  */
-#define DEFAULT_PUBLISH_INTERVAL    (30 * CLOCK_SECOND)
+#define DEFAULT_PUBLISH_INTERVAL    (10 * CLOCK_SECOND)
 
 /*
  * Alert Interval
@@ -164,7 +164,7 @@ static struct etimer measure_timer;
  *
  *  As of now, this number never gets transmitted anywhere
  */
-static uint16_t seq_nr_value = 0;
+uint16_t seq_nr_value = 0;
 
 /*---------------------------------------------------------------------------*/
 /*
@@ -214,6 +214,10 @@ static coap_endpoint_t server_addr;
  */
 static coap_endpoint_t nurse_addr;
 
+/**
+ * Local variable to measure RTT
+ */
+clock_time_t start_RTT;
 
 /*
  * Simulation Parameters
@@ -1083,11 +1087,13 @@ static bool publish(uint8_t topic_id) {
 
   //  Payload construction
 
+  start_RTT = clock_time();
+
   if(topic_id == TOPIC_MSG_VITALS) { //  If topic = "vitals"
 
     topic = vitals_topic;
     buf = vitals_app_buffer;
-    qos = MQTT_QOS_LEVEL_0;
+    qos = MQTT_QOS_LEVEL_1;
 
     if(!build_payload_vitals(buf, APP_BUFFER_SIZE)) {
       LOG_ERR("Vitals payload construction fail\n");
@@ -1210,7 +1216,7 @@ static clock_time_t measure_and_publish(void) {
 
     LOG_DBG("Starting measurement cycle\n");
     patient_measurement_cycle();
-    seq_nr_value++;
+    seq_nr_value++; //Incrementing the sequence number now and not on the backlog phase
 
     retention_push(vitals_retention, &vitals_ret_head, &vitals_ret_count,
                    &vitals_dropped, &current_vitals, active_alerts);
@@ -1265,25 +1271,24 @@ static clock_time_t measure_and_publish(void) {
   LOG_DBG("Starting measurement cycle\n");
   patient_measurement_cycle();
 
-  seq_nr_value++;
-
   if(should_suppress_vitals()) {
     
-    LOG_DBG("Congested, low-priority vitals suppressed\n");
+    LOG_INFO("Congested, low-priority vitals suppressed\n");
   } else if(!mqtt_service_ready()) {
     
     /* The previous message is still going out. Attempting anyway just
      * gets refused and keeps the queue from draining - decoupling the
      * cycle from MQTT removed the natural back-pressure the service
      * used to provide, so it has to be checked explicitly. */
-    LOG_DBG("MQTT busy, skipping this publish\n");
+    LOG_INFO("MQTT busy, skipping this publish\n");
   } else {
-    LOG_DBG("Publishing vitals\n");
+    LOG_INFO("Publishing vitals\n");
     publish(TOPIC_MSG_VITALS);
+    seq_nr_value++;
   }
 
   if(active_alerts != 0) {
-    LOG_DBG("Alerts detected, deferring to next slot\n");
+    LOG_INFO("Alerts detected, deferring to next slot\n");
     alert_pending = true;
     return ALERT_PUBLISH_INTERVAL;
   }

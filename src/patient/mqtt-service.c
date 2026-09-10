@@ -190,11 +190,12 @@ have_connectivity(void)
  * Note: received publishes are forwarded verbatim to the application
  * through the on_incoming callback: no topic parsing happens here,
  * because topics are an application concern.
- *
- * Frank: (think hard) listen... I kept you logic that include useless 
- * thing (for us) like MQTT_EVENT_SUBACK. We have to decide whether kept it
- * (but if we don't use it I don't see any reason) or delete it.
  */
+
+static clock_time_t rtt;
+extern clock_time_t start_RTT;
+extern uint16_t seq_nr_value;
+
 static void
 mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
 {
@@ -205,14 +206,14 @@ mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
 
   switch(event) {
   case MQTT_EVENT_CONNECTED: {
-    LOG_DBG("Application has a MQTT connection\n");
+    LOG_INFO("Application has a MQTT connection\n");
     timer_set(&connection_life, CONNECTION_STABLE_TIME);
     state = STATE_CONNECTED;
     break;
   }
   case MQTT_EVENT_DISCONNECTED:
   case MQTT_EVENT_CONNECTION_REFUSED_ERROR: {
-    LOG_DBG("MQTT Disconnect. Reason %u\n", *((mqtt_event_t *)data));
+    LOG_INFO("MQTT Disconnect. Reason %u\n", *((mqtt_event_t *)data));
 
     state = STATE_DISCONNECTED;
     /* Wake the application process up so the state machine runs and
@@ -225,7 +226,7 @@ mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
 
     if(msg_ptr->first_chunk) {
       msg_ptr->first_chunk = 0;
-      LOG_DBG("Application received publish for topic '%s'. Payload "
+      LOG_INFO("Application received publish for topic '%s'. Payload "
               "size is %i bytes.\n",
               msg_ptr->topic, msg_ptr->payload_chunk_length);
     }
@@ -256,7 +257,8 @@ mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
     break;
   }
   case MQTT_EVENT_PUBACK: {
-    LOG_DBG("Publishing complete.\n");
+    rtt = clock_time() - start_RTT;
+    LOG_INFO("Publishing complete, sequence_number = %u, RTT = %li, CLOCK_SECONDS = %i.\n",seq_nr_value, rtt, CLOCK_SECOND);
     break;
   }
   default:
@@ -281,7 +283,7 @@ connect_to_broker(void)
  *
  * It is the same one of the original example, with one structural
  * difference: the "what do we publish" part has been replaced by the
- * on_publish_slot application callback, which also RETURNS the delay
+ * mesure_and_publish application callback, which also RETURNS the delay
  * until the next slot. The rate policy (routine vs alert interval)
  * therefore lives in patient.c, not here.
  */
