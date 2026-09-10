@@ -513,7 +513,36 @@ static bool publish_buffered(
 #define gateway_update()   do { } while(0)
 #define gateway_is_down()  false
 #define retention_pending()  false
+
 typedef struct { int unused; } buffered_reading_t;
+
+static buffered_reading_t *vitals_retention;
+static uint8_t vitals_ret_head = 0;
+static uint8_t vitals_ret_count = 0;
+
+static buffered_reading_t *alert_retention;
+static uint8_t alert_ret_head = 0;
+static uint8_t alert_ret_count = 0;
+
+static uint16_t vitals_dropped = 0;
+static uint16_t alerts_dropped = 0;
+
+static bool retention_peek(
+  const buffered_reading_t *buf,
+  uint8_t head,
+  uint8_t count,
+  buffered_reading_t *out) {return false;}
+
+  static bool publish_buffered(
+  uint8_t topic_id,
+  const buffered_reading_t *entry) {return false;}
+
+static void retention_commit(uint8_t *count) {}
+
+static void retention_push(
+  buffered_reading_t *buf, uint8_t *head, uint8_t *count,
+  uint16_t *dropped, const patient_vitals_t *v, uint8_t alerts) {}
+
 
 #endif /* ADAPTIVE_BUFFERING */
 
