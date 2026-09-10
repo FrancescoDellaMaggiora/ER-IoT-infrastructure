@@ -109,6 +109,7 @@ public class StorageThread extends Thread {
     private static Point toPoint(Vitals vitals) {
         Point point = Point.measurement(MEASUREMENT_VITALS)
                 .addTag("patientId", vitals.getPatientId())
+                .addTag("source", vitals.getSource())
                 .time(vitals.getTimestamp(), WritePrecision.MS);
 
         if (vitals.getHeartRate() != null) {

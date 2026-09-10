@@ -19,6 +19,7 @@ final class VitalsMapper {
         Integer resprationRate = null;
         
         Instant timestamp = Instant.now();
+        String source = "vitals";
         for (SenMLRecord r : records) {
 
             if (r.getTime() != null && Math.abs(r.getTime()) < (1L << 28)) {
@@ -30,6 +31,7 @@ final class VitalsMapper {
 
             if (name.endsWith(ALERT_SUFFIX)) {
                 name = name.substring(0, name.length() - ALERT_SUFFIX.length());
+                source = "alert";
             }
 
             switch (name) {
@@ -59,6 +61,6 @@ final class VitalsMapper {
                 patientId, timestamp,
                 heartRate, spo2, temperature,
                 pressureSystolic, pressureDiastolic,
-                resprationRate);
+                resprationRate, source);
     }
 }

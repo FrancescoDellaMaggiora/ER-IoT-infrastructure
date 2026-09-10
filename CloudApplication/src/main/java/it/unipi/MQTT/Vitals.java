@@ -27,10 +27,12 @@ public class Vitals {
     private final Integer pressureDiastolic; // mmHg
     private final Integer resprationRate;    // breaths/min
 
+    private final String source;
+
     public Vitals(String patientId, Instant timestamp,
                   Integer heartRate, Integer spo2, Double temperature,
                   Integer pressureSystolic, Integer pressureDiastolic,
-                  Integer resprationRate) {
+                  Integer resprationRate, String source) {
         this.patientId = patientId;
         this.timestamp = timestamp;
         this.heartRate = heartRate;
@@ -39,6 +41,7 @@ public class Vitals {
         this.pressureSystolic = pressureSystolic;
         this.pressureDiastolic = pressureDiastolic;
         this.resprationRate = resprationRate;
+        this.source = source;
     }
 
     public String getPatientId() { return patientId; }
@@ -49,6 +52,7 @@ public class Vitals {
     public Integer getPressureSystolic() { return pressureSystolic; }
     public Integer getPressureDiastolic() { return pressureDiastolic; }
     public Integer getResprationRate() { return resprationRate; }
+    public String getSource() { return source; }
 
     @Override
     public String toString() {
@@ -60,6 +64,7 @@ public class Vitals {
                 ", temperature=" + temperature +
                 ", pressureSystolic=" + pressureSystolic +
                 ", pressureDiastolic=" + pressureDiastolic +
+                ", source=" + source + 
                 '}';
     }
 }
