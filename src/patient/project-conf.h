@@ -49,7 +49,6 @@
  * With the Cooja + tunslip6 setup this is typically the address of the
  * tun interface on the host running the broker (Mosquitto).
  */
-//  TODO: modify the IP_addr on compilation time
 #define MQTT_CLIENT_CONF_BROKER_IP_ADDR "fd00:1::1"
 
 #define TRIAGE_REPORT_CONF_CLOUD_EP "coap://[fd00:1::1]"

@@ -53,11 +53,11 @@ static void report_callback(coap_callback_request_state_t  *state)
 {
 
   coap_request_state_t *request_state = &state->state;
+  coap_message_t *response = request_state->response;
 
   switch(request_state->status) {
   
-    case COAP_REQUEST_STATUS_RESPONSE:
-      coap_message_t *response = request_state->response;
+    case COAP_REQUEST_STATUS_RESPONSE:      
 
       LOG_INFO("Cloud replied %u.%02u\n",
               response->code >> 5, response->code & 0x1F);

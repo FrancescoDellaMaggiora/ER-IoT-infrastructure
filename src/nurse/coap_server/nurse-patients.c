@@ -561,7 +561,7 @@ void print_patients() {
     LOG_DBG("PATIENT LIST:\n");
     int i;
     for(i = 0; i < MAX_PATIENT_NUMBER; i++) {
-        LOG_DBG("Slot: %i\t ID: %li\t SSN: %s\t Name: %s\t Surname: %s\t Code: %i\t Reception timestamp: %i\t Last visit timestamp: %i\t Led color: %i\t Status: %i\n", 
+        LOG_DBG("Slot: %i\t ID: %li\t SSN: %s\t Name: %s\t Surname: %s\t Code: %i\t Reception timestamp: %li\t Last visit timestamp: %li\t Led color: %i\t Status: %i\n", 
             i, nurse_patients[i].patient_id, nurse_patients[i].SSN, nurse_patients[i].name, nurse_patients[i].surname,
             nurse_patients[i].triage_code, nurse_patients[i].reception_timestamp, nurse_patients[i].last_visit_timestamp, nurse_patients[i].led_color, nurse_patients[i].status);
     }
@@ -572,7 +572,7 @@ void print_requests() {
     LOG_DBG("REQUEST LIST (%i active request(s)):\n", current_requests);
     int i;
     for(i = 0; i < current_requests; i++) {
-        LOG_DBG("Slot: %i\t ID: %li\t Code: %i\t Timestamp: %i\t Led color: %i\n", 
+        LOG_DBG("Slot: %i\t ID: %li\t Code: %i\t Timestamp: %li\t Led color: %i\n", 
             i, request_queue[i].patient_id, request_queue[i].triage_code, request_queue[i].assistance_timestamp, request_queue[i].led_color);
     }
 }

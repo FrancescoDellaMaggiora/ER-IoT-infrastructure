@@ -899,21 +899,36 @@ senml_add_age(senml_builder_t *b, clock_time_t taken_at)
   b->first = false;
 }
 
-/* 
- * Append one record with a float value printed with one decimal.
- * NOTE for the real nRF52840 deployment: newlib-nano's printf does not
- * print floats by default (needs the '-u _printf_float' linker flag, or
- * a conversion to integer tenths). On Cooja this works as-is.
+/*
+ * Append one record with a value printed to one decimal.
+ *
+ * The decimal part is built by hand from an integer rather than with
+ * "%.1f": newlib-nano, the libc used on the nRF52840, omits floating
+ * point support from printf to save flash, so "%f" silently prints
+ * nothing and the JSON comes out as {"v":}.
  */
-static void senml_add_float1(senml_builder_t *b, const char *name, const char *unit,
+static void
+senml_add_float1(senml_builder_t *b, const char *name, const char *unit,
                  float value)
 {
+  int whole, tenths;
+  long scaled;
+
   if(!b->first) {
-    //  A comma has to be added first
     senml_append(b, ",");
   }
-  senml_append(b, "{\"n\":\"%s\",\"u\":\"%s\",\"v\":%.1f}", name, unit,
-               value);
+
+  /* Round to one decimal, then split. Handles negatives correctly:
+   * -36.25 -> -36 and 3 tenths, printed as -36.3 */
+  scaled = (long)(value * 10.0f + (value >= 0 ? 0.5f : -0.5f));
+  whole = (int)(scaled / 10);
+  tenths = (int)(scaled % 10);
+  if(tenths < 0) {
+    tenths = -tenths;
+  }
+
+  senml_append(b, "{\"n\":\"%s\",\"u\":\"%s\",\"v\":%d.%d}",
+               name, unit, whole, tenths);
   b->first = false;
 }
 
@@ -1096,7 +1111,7 @@ static bool publish(uint8_t topic_id) {
     int len = build_payload_registration(buf, APP_BUFFER_SIZE);
     if(len <= 0) {
       LOG_ERR("Registration payload construction fail\n");
-      return;
+      return false;
     }
   } else {
 
@@ -1412,7 +1427,8 @@ void client_chunk_handler(coap_message_t *response) {
   int len;
 
   if(response == NULL) {
-    puts("Request timed out");
+    puts("Request timed out, will retry");
+    etimer_reset(&et);
     return;
   }
 
@@ -1461,7 +1477,7 @@ PROCESS_THREAD(patient_process, ev, data)
   triage_report_init();
 
   //  The device tries to register after 1 minute it's on
-  etimer_set(&et, 60 * CLOCK_SECOND);
+  etimer_set(&et, 10 * CLOCK_SECOND);
 
   //  Set the resource URI /er/patient/registration/<DEVICE_ID>
   snprintf(REGISTRATION_URI, sizeof(REGISTRATION_URI), "/er/patient/registration/%i", DEVICE_ID);
