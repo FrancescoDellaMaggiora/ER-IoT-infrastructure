@@ -1300,6 +1300,8 @@ static clock_time_t measure_and_publish(void) {
       LOG_DBG("Publishing deferred alert\n");
       publish(TOPIC_MSG_ALERT);
       alert_pending = false;
+
+      return ALERT_PUBLISH_INTERVAL;
     } else {
       LOG_DBG("MQTT busy, alert stays pending\n");
     }
