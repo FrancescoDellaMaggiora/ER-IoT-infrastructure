@@ -40,10 +40,12 @@ Patient node - application logic
 
 #include "patient.h"
 #include "triage_model.h"
+#include "adaptive.h"
 #include "mqtt-service.h"
 #include "coap-engine.h"
 #include "vitals-buffer.h"
 #include "triage-report.h"
+#include "senml.h"
 
 #include "coap-blocking-api.h"
 #include "coap-log.h"
@@ -65,11 +67,13 @@ Patient node - application logic
 #endif
 
 /*---------------------------------------------------------------------------*/
+/* Compile-time configuration                                                */
+/*---------------------------------------------------------------------------*/
 /* Feature flag: subscription support. */
 #define PATIENT_SUBSCRIBE_ENABLED 0
-/*---------------------------------------------------------------------------*/
 
-/* Vitals publish intervals.
+/* 
+ * Vitals publish intervals.
  * The rate policy lives HERE (application), not in the MQTT service:
  * on_publish_slot() returns the delay until the next slot.
  * Publish every 30 seconds
@@ -82,15 +86,30 @@ Patient node - application logic
  */
 #define ALERT_PUBLISH_INTERVAL      (1 * CLOCK_SECOND)
 
-/* Checked on its own timer, not from on_publish_slot(): that slot only
+/* 
+ * Checked on its own timer, not from on_publish_slot(): that slot only
  * fires when MQTT is idle and ready, so it becomes rarer exactly when
  * the gateway is failing, the detector would starve precisely when it
- * is needed. */
+ * is needed.
+ */
 #define GATEWAY_CHECK_INTERVAL (5 * CLOCK_SECOND)
+
+/* 
+ * While draining the backlog, come back quickly instead of waiting the
+ * full routine interval: the MQTT out queue holds one message at a time,
+ * so the buffer can only be emptied one entry per slot.
+ */
+#define RETENTION_FLUSH_INTERVAL (2 * CLOCK_SECOND)
+
+/*
+ * URI to ask for nurse assistance
+ */
+#define ASSISTANCE_URI "/er/patient/assistance"
 
 #define OBS_STATUS_URI "/er/patient/assistance/status"
 
-
+/*---------------------------------------------------------------------------*/
+/* Global state                                                              */
 /*---------------------------------------------------------------------------*/
 /*
  * Buffer for the registration uri
@@ -98,11 +117,6 @@ Patient node - application logic
 #define URI_SIZE 64
 static char REGISTRATION_URI[URI_SIZE];
 
-/*
- * URI to ask for nurse assistance
- */
-#define ASSISTANCE_URI "/er/patient/assistance"
-/*---------------------------------------------------------------------------*/
 /*
  * Buffers for Client ID and Topics.
  */
@@ -112,8 +126,6 @@ static char client_id[BUFFER_SIZE];
 static char vitals_topic[BUFFER_SIZE];
 static char alert_topic[BUFFER_SIZE];
 static char registration_topic[BUFFER_SIZE];
-
-static bool publish(uint8_t topic_id);
 
 #if PATIENT_SUBSCRIBE_ENABLED
 static char sub_topic[BUFFER_SIZE];
@@ -130,7 +142,6 @@ static char sub_topic[BUFFER_SIZE];
  */
 static clock_time_t publish_taken_at = 0;
 
-/*---------------------------------------------------------------------------*/
 /*
  * The MQTT payload buffers.
  * We will need to increase if we start publishing more data.
@@ -146,13 +157,25 @@ static char registration_app_buffer[APP_BUFFER_SIZE];
  */
 static struct etimer measure_timer;
 
-/*---------------------------------------------------------------------------*/
-/*  Sequence numbers
+static struct etimer gateway_timer;
+static struct etimer et;
+static int flagRegistration = 0;
+
+/*
+ * Contiki-NG's MQTT out queue holds ONE message at a time: a second
+ * mqtt_publish() in the same slot is refused with
+ * MQTT_STATUS_OUT_QUEUE_FULL, regardless of payload size (a 46 B alert
+ * was refused just like a 180 B one). So the alert is deferred to the
+ * next slot rather than sent back-to-back with the vitals.
+ */
+static bool alert_pending = false;
+
+/*  
+ * Sequence numbers
  */
 uint16_t seq_nr_value = 0;
 uint16_t seq_nr_alert = 0;
 
-/*---------------------------------------------------------------------------*/
 /*
  *  This variable indicates which sensors are attached to the patient using
  *  the SENSOR macros (in this case the all the vitals are measured)
@@ -163,12 +186,12 @@ static uint8_t attached_sensors =
   SENSOR_RESPIRATION_RATE;
 
 
-/*  This variabile indicates which alert conditions are currently active
+/*  
+ *  This variabile indicates which alert conditions are currently active
  *  using the ALERT macros
 */
 static uint8_t active_alerts = 0;
 
-/*---------------------------------------------------------------------------*/
 /*
  *  Data structure holding current patient vitals
  */
@@ -189,13 +212,13 @@ static process_event_t stop_observation_event;
  */
 device_data_t patient_info;
 
-/*---------------------------------------------------------------------------*/
 /*
  *  Discharge resource
  */
 extern coap_resource_t res_discharge;
 extern coap_resource_t res_triage;
 static coap_observee_t *request_status;
+
 /*
  * Cloud Application CoAP endpoint
  */
@@ -206,13 +229,13 @@ static coap_endpoint_t server_addr;
  */
 static coap_endpoint_t nurse_addr;
 
-/**
+/*
  * Variable to measure RTT
  */
 clock_time_t start_RTT;
 
-/**
- *Variable to save last RTT
+/*
+ * Variable to save last RTT
  */
 clock_time_t last_RTT = 0;
 
@@ -252,335 +275,30 @@ const simulation_parameters_t SIMULATION_VALUES[SIM_PARAM_COUNT] = {
  * iterated on them: casting to int truncates toward zero, so positive
  * noise is discarded while negative noise is amplified. That is a
  * systematic -0.5/step drift, not noise, the mean reversion then
- * settles at whatever deviation makes the pull cancel it (SpO2 ended up
- * stuck at 56 instead of 98). Keeping the state as float and rounding
+ * settles at whatever deviation makes the pull cancel it.
+ * Keeping the state as float and rounding
  * only for publication removes the bias entirely.
  */
 static float sim_hr, sim_spo2, sim_sbp, sim_dbp, sim_rr;
 
  /*
-   * Confirmation counter: a classifier sitting near a decision boundary
-   * flips between adjacent codes.
-   * Each flip costs a CoAP PUT to the cloud plus one from
-   * the cloud to the nurse, so a code is committed only after the model
-   * has predicted it consistently. */
+  * Confirmation counter: a classifier sitting near a decision boundary
+  * flips between adjacent codes.
+  * Each flip costs a CoAP PUT to the cloud plus one from
+  * the cloud to the nurse, so a code is committed only after the model
+  * has predicted it consistently.
+  */
 static uint8_t candidate_code = 0;
 static uint8_t candidate_streak = 0;
-
-
-/*---------------------------------------------------------------------------*/
-/* Congestion handling (adaptive mechanism #1)                               */
-/*---------------------------------------------------------------------------*/
-#if ADAPTIVE_CONGESTION
-
-/*
- * A single refused publish means nothing: it happens routinely when the
- * previous message has not left the queue yet. What indicates congestion
- * is a SEQUENCE of refusals, i.e. the queue never draining across several
- * consecutive slots.
- *
- * The thresholds are asymmetric on purpose: entering quickly protects
- * the channel, leaving slowly avoids flapping back into congestion on a
- * single lucky success.
- *
- * Another way to find out a congestion is when a alert message is too slow
- * for a sequence of times.
- */
-#define CONGESTION_ENTER_THRESHOLD  3
-#define CONGESTION_EXIT_THRESHOLD   5
-#define CONGESTION_MAX_LATENCY 3
-
-static uint8_t consecutive_failures = 0;
-static uint8_t consecutive_successes = 0;
-static uint8_t consecutive_latency = 0;
-static bool network_congested = false;
-
-static void congestion_update(bool publish_ok)
-{
-  if(publish_ok) {
-    consecutive_failures = 0;
-    if(network_congested) {
-      consecutive_successes++;
-      if(consecutive_successes >= CONGESTION_EXIT_THRESHOLD) {
-        network_congested = false;
-        consecutive_successes = 0;
-        LOG_INFO("Congestion cleared\n");
-      }
-    }
-  } else {
-    consecutive_successes = 0;
-    if(!network_congested) {
-      consecutive_failures++;
-      if(consecutive_failures >= CONGESTION_ENTER_THRESHOLD) {
-        network_congested = true;
-        consecutive_failures = 0;
-        LOG_INFO("Congestion detected for too much failure: throttling low-priority vitals\n");
-      }
-    }
-  }
-
-  
-  if (last_RTT >= CONGESTION_MAX_LATENCY * CLOCK_SECOND ) {
-    consecutive_latency++;
-    last_RTT = 0;
-    if (consecutive_latency >= CONGESTION_ENTER_THRESHOLD) {
-      network_congested = true;
-      LOG_INFO("Congestion detected for latency: throttling low-priority vitals\n");
-    }
-  } else {
-    consecutive_latency = 0;
-  }
-}
-/*
- * Under congestion, low-priority patients stop sending ROUTINE vitals:
- * network triage mirroring clinical triage. Alerts are never suppressed
- * as a deteriorating white-code patient must still be able to raise one,
- * and that is precisely what makes the mechanism safe to apply.
- */
-static bool should_suppress_vitals(void)
-{
-  if(!network_congested) {
-    return false;
-  }
-
-  return patient_info.triage_code == CODE_GREEN ||
-         patient_info.triage_code == CODE_WHITE;
-}
-
-#else  /* ADAPTIVE_CONGESTION == 0 */
-
-/* Baseline build: no detection, nothing ever suppressed. */
-#define congestion_update(ok)     do { } while(0)
-#define should_suppress_vitals()  false
-
-#endif /* ADAPTIVE_CONGESTION */
-
-/*---------------------------------------------------------------------------*/
-/* Gateway failure handling (adaptive mechanism #2)                          */
-/*---------------------------------------------------------------------------*/
-
-#if ADAPTIVE_BUFFERING
-
-#include "net/ipv6/uip-ds6.h"
-
-/*
- * Detecting a dead border router.
- *
- * Nothing notifies the node: the BR simply stops answering.
- *     The default route is checked, which RPL removes once the BR's DIOs stop
- *     arriving. Faster and more reliable than waiting for TCP to time
- *     out, and it is the same check mqtt-service already uses to decide
- *     whether it is worth connecting at all;
- *
- * Same asymmetric hysteresis as the congestion detector: react quickly
- * to a loss, return slowly, so a single missed DIO does not flip the
- * node into buffering mode.
- */
-#define GATEWAY_LOST_THRESHOLD  3
-#define GATEWAY_BACK_THRESHOLD  2
-
-static uint8_t gw_missing_count = 0;
-static uint8_t gw_present_count = 0;
-static bool gateway_down = false;
-
-static void gateway_update(void)
-{
-  /*
-   * The border router is this network's default router: when it dies,
-   * RPL stops receiving its DIOs and removes the default route. Checking
-   * the routing table directly is faster and more reliable than waiting
-   * for TCP to time out on the MQTT connection, and it isolates the
-   * failure we actually care about (the gateway) from an unrelated
-   * broker outage, which would look identical through the MQTT state.
-   */
-  bool reachable = (uip_ds6_defrt_choose() != NULL);
-
-  LOG_INFO("Gateway check: reachable=%d, missing=%u, down=%d\n",
-           reachable, gw_missing_count, gateway_down);
-
-  if(reachable) {
-    gw_missing_count = 0;
-    if(gateway_down) {
-      gw_present_count++;
-      if(gw_present_count >= GATEWAY_BACK_THRESHOLD) {
-        gateway_down = false;
-        gw_present_count = 0;
-        LOG_INFO("Gateway back\n");
-      }
-    }
-  } else {
-    gw_present_count = 0;
-    if(!gateway_down) {
-      gw_missing_count++;
-      if(gw_missing_count >= GATEWAY_LOST_THRESHOLD) {
-        gateway_down = true;
-        gw_missing_count = 0;
-        LOG_WARN("Gateway unreachable: buffering readings locally\n");
-      }
-    }
-  }
-}
-
-static bool gateway_is_down(void)
-{
-  return gateway_down;
-}
-
-/*
- * Retention buffers.
- *
- * Readings taken while the gateway is down are kept here and replayed
- * when it comes back. What is stored is the RAW SNAPSHOT (vitals plus
- * the alert bitmask), not the built JSON.
- *
- * Vitals and alerts are kept apart so a burst of routine readings can
- * never push an alert out of the window, the two fill up at their own
- * pace and the alert buffer only grows when something is actually wrong.
- */
-#define RETENTION_CAPACITY 16
-
-typedef struct {
-  patient_vitals_t vitals;
-  uint8_t alerts;              /* active_alerts at the time of the reading */
-  clock_time_t taken_at;       /* clock_seconds() when the reading was taken */
-} buffered_reading_t;
-
-static buffered_reading_t vitals_retention[RETENTION_CAPACITY];
-static uint8_t vitals_ret_head = 0;
-static uint8_t vitals_ret_count = 0;
-
-static buffered_reading_t alert_retention[RETENTION_CAPACITY];
-static uint8_t alert_ret_head = 0;
-static uint8_t alert_ret_count = 0;
-
-/* 
- * Dropped-on-overflow counters: the metric that makes the mechanism
- * measurable against the baseline build, where EVERY reading taken
- * during an outage is lost.
- */
-static uint16_t vitals_dropped = 0;
-static uint16_t alerts_dropped = 0;
-
-static void
-retention_push(buffered_reading_t *buf, uint8_t *head, uint8_t *count,
-               uint16_t *dropped, const patient_vitals_t *v, uint8_t alerts)
-{
-  buf[*head].vitals = *v;
-  buf[*head].alerts = alerts;
-  buf[*head].taken_at = clock_seconds();
-  *head = (uint8_t)((*head + 1) % RETENTION_CAPACITY);
-
-  if(*count < RETENTION_CAPACITY) {
-    (*count)++;
-  } else {
-    /* Full: the write above overwrote the oldest entry, and head now
-     * points at the new oldest. Newest-wins on purpose, during a long
-     * outage the recent clinical picture matters more than the stale one. */
-    (*dropped)++;
-  }
-}
-
-/* 
- * Reads the oldest entry WITHOUT removing it. The entry is dropped only
- * once the publish is accepted (retention_commit), so a refused publish
- * does not lose the reading, which would defeat the whole mechanism.
- */
-static bool retention_peek(
-  const buffered_reading_t *buf,
-  uint8_t head,
-  uint8_t count,
-  buffered_reading_t *out)
-{
-  if(count == 0) {
-    return false;
-  }
-
-  *out = buf[(head + RETENTION_CAPACITY - count) % RETENTION_CAPACITY];
-  return true;
-}
-
-static void retention_commit(uint8_t *count)
-{
-  if(*count > 0) {
-    (*count)--;
-  }
-}
-
-static bool retention_pending(void)
-{
-  return vitals_ret_count > 0 || alert_ret_count > 0;
-}
-
-static bool publish_buffered(
-  uint8_t topic_id,
-  const buffered_reading_t *entry)
-{
-  /* publish() and the payload builders read the globals, so the stored
-   * snapshot is swapped in for the duration of the call and restored
-   * afterwards. Safe because nothing runs in between: this is a single
-   * protothread, not preemptive. */
-  patient_vitals_t saved_vitals = current_vitals;
-  uint8_t saved_alerts = active_alerts;
-  clock_time_t saved_taken_at = publish_taken_at;
-  bool ok;
-
-  current_vitals = entry->vitals;
-  active_alerts = entry->alerts;
-  publish_taken_at = entry->taken_at;
-
-  ok = publish(topic_id);
-
-  current_vitals = saved_vitals;
-  active_alerts = saved_alerts;
-  publish_taken_at = saved_taken_at;
-
-  return ok;
-}
-
-#else  /* ADAPTIVE_BUFFERING == 0 */
-
-/* Baseline build: no detection, readings published (and lost) as usual. */
-#define gateway_update()   do { } while(0)
-#define gateway_is_down()  false
-#define retention_pending()  false
-
-typedef struct { int unused; } buffered_reading_t;
-
-static buffered_reading_t *vitals_retention;
-static uint8_t vitals_ret_head = 0;
-static uint8_t vitals_ret_count = 0;
-
-static buffered_reading_t *alert_retention;
-static uint8_t alert_ret_head = 0;
-static uint8_t alert_ret_count = 0;
-
-static uint16_t vitals_dropped = 0;
-static uint16_t alerts_dropped = 0;
-
-static bool retention_peek(
-  const buffered_reading_t *buf,
-  uint8_t head,
-  uint8_t count,
-  buffered_reading_t *out) {return false;}
-
-  static bool publish_buffered(
-  uint8_t topic_id,
-  const buffered_reading_t *entry) {return false;}
-
-static void retention_commit(uint8_t *count) {}
-
-static void retention_push(
-  buffered_reading_t *buf, uint8_t *head, uint8_t *count,
-  uint16_t *dropped, const patient_vitals_t *v, uint8_t alerts) {}
-
-
-#endif /* ADAPTIVE_BUFFERING */
-
-
 
 /*---------------------------------------------------------------------------*/
 PROCESS(patient_process, "Patient node");
 AUTOSTART_PROCESSES(&patient_process);
+
+/*---------------------------------------------------------------------------*/
+/* Forward declarations                                                      */
+/*---------------------------------------------------------------------------*/
+static bool publish(uint8_t topic_id);
 
 /*---------------------------------------------------------------------------*/
 /* Topic / client id construction                                            */
@@ -665,7 +383,6 @@ static int  construct_client_id(void) {
 
   return 1;
 }
-
 
 /*---------------------------------------------------------------------------*/
 /* Vitals simulation                                                         */
@@ -859,154 +576,14 @@ static void patient_measurement_cycle(void)
       triage_report_send(patient_info.patient_id, candidate_code);
     }
   } 
-
-  
-  
 }
 
 
 /*---------------------------------------------------------------------------*/
-/* SenML payload construction                                                */
+/* Payload construction                                                      */
 /*---------------------------------------------------------------------------*/
 //  Functions to build each topic's payload. The payload will 
 //  depend on mounted sensors, active alerts, ...
-
-
-
-typedef struct {
-  char *buf;        /* current write position          */
-  int remaining;    /* space left, including the '\0'  */
-  bool first;       /* no record written yet -> no ',' */
-  bool failed;      /* a snprintf overflowed           */
-} senml_builder_t;
-
-/* 
- * Internal: append formatted text, tracking overflow
- */
-static void senml_append(senml_builder_t *b, const char *fmt, ...)
-{
-  va_list ap;
-  int len;
-
-  if(b->failed) {
-    return;
-  }
-
-  va_start(ap, fmt);
-  len = vsnprintf(b->buf, b->remaining, fmt, ap);
-  va_end(ap);
-
-  if(len < 0 || len >= b->remaining) {
-    b->failed = true;
-    return;
-  }
-
-  b->buf += len;
-  b->remaining -= len;
-}
-
-/* 
- * Open the SenML pack: '['
- */
-static void senml_begin(senml_builder_t *b, char *buffer, int buffer_size)
-{
-  b->buf = buffer;
-  b->remaining = buffer_size;
-  b->first = true;
-  b->failed = false;
-
-  senml_append(b, "[");
-}
-
-/*
- * Append one record with an integer value:
- * {"n":"<name>","u":"<unit>","v":<value>}
- */
-static void senml_add_int(senml_builder_t *b, const char *name, const char *unit,
-              int value)
-{
-  if(!b->first) {
-    //  A comma has to be added first
-    senml_append(b, ",");
-  }
-  senml_append(b, "{\"n\":\"%s\",\"u\":\"%s\",\"v\":%d}", name, unit, value);
-  b->first = false;
-}
-
-/*
- * Adding the 't' key
- *
- * Live readings emit no 't' at all: age zero means "now", which is the
- * default the receiver already assumes.
- */
-static void
-senml_add_age(senml_builder_t *b, clock_time_t taken_at)
-{
-  long age;
-
-  if(taken_at == 0) {
-    return;      /* live reading */
-  }
-
-  age = (long)clock_seconds() - (long)taken_at;
-
-  if(age <= 0) {
-    return;      /* same second, nothing to correct */
-  }
-
-  if(!b->first) {
-    senml_append(b, ",");
-  }
-  senml_append(b, "{\"t\":-%ld}", age);
-  b->first = false;
-}
-
-/*
- * Append one record with a value printed to one decimal.
- *
- * The decimal part is built by hand from an integer rather than with
- * "%.1f": newlib-nano, the libc used on the nRF52840, omits floating
- * point support from printf to save flash, so "%f" silently prints
- * nothing and the JSON comes out as {"v":}.
- */
-static void
-senml_add_float1(senml_builder_t *b, const char *name, const char *unit,
-                 float value)
-{
-  int whole, tenths;
-  long scaled;
-
-  if(!b->first) {
-    senml_append(b, ",");
-  }
-
-  /* Round to one decimal, then split. Handles negatives correctly:
-   * -36.25 -> -36 and 3 tenths, printed as -36.3 */
-  scaled = (long)(value * 10.0f + (value >= 0 ? 0.5f : -0.5f));
-  whole = (int)(scaled / 10);
-  tenths = (int)(scaled % 10);
-  if(tenths < 0) {
-    tenths = -tenths;
-  }
-
-  senml_append(b, "{\"n\":\"%s\",\"u\":\"%s\",\"v\":%d.%d}",
-               name, unit, whole, tenths);
-  b->first = false;
-}
-
-/* 
- * Close the SenML pack: ']'. Returns 1 on success, 0 on overflow.
- */
-static int senml_end(senml_builder_t *b, const char *caller)
-{
-  senml_append(b, "]");
-
-  if(b->failed) {
-    LOG_ERR("%s: payload buffer too short\n", caller);
-    return 0;
-  }
-  return 1;
-}
 
 /*---------------------------------------------------------------------------*/
 static int build_payload_vitals(char *buffer, int buffer_size)
@@ -1222,22 +799,33 @@ static void on_mqtt_connected(void)
   #endif
 }
 
-/*---------------------------------------------------------------------------*/
 /*
- * Contiki-NG's MQTT out queue holds ONE message at a time: a second
- * mqtt_publish() in the same slot is refused with
- * MQTT_STATUS_OUT_QUEUE_FULL, regardless of payload size (a 46 B alert
- * was refused just like a 180 B one). So the alert is deferred to the
- * next slot rather than sent back-to-back with the vitals.
+ * Replays one retained reading.
+ *
+ * publish() and the payload builders read the globals, so the stored
+ * snapshot is swapped in for the duration of the call and restored
+ * afterwards. Safe because nothing runs in between: this is a single
+ * protothread, not preemptive.
  */
-static bool alert_pending = false;
+static bool publish_buffered(uint8_t topic_id, const buffered_reading_t *entry)
+{
+  patient_vitals_t saved_vitals = current_vitals;
+  uint8_t saved_alerts = active_alerts;
+  clock_time_t saved_taken_at = publish_taken_at;
+  bool ok;
 
-/* 
- * While draining the backlog, come back quickly instead of waiting the
- * full routine interval: the MQTT out queue holds one message at a time,
- * so the buffer can only be emptied one entry per slot.
- */
-#define RETENTION_FLUSH_INTERVAL (2 * CLOCK_SECOND)
+  current_vitals = entry->vitals;
+  active_alerts = entry->alerts;
+  publish_taken_at = entry->taken_at;
+
+  ok = publish(topic_id);
+
+  current_vitals = saved_vitals;
+  active_alerts = saved_alerts;
+  publish_taken_at = saved_taken_at;
+
+  return ok;
+}
 
 /*
  * Runs one measurement cycle and decides what to do with the reading:
@@ -1269,8 +857,7 @@ static clock_time_t measure_and_publish(void) {
      * raised it, since no measurement cycle has run since.
      */
     if(alert_pending) {
-      retention_push(alert_retention, &alert_ret_head, &alert_ret_count,
-                     &alerts_dropped, &current_vitals, active_alerts);
+      retention_store_alert(&current_vitals, active_alerts);
       alert_pending = false;
       LOG_DBG("Gateway down: deferred alert retained\n");
     }
@@ -1279,17 +866,16 @@ static clock_time_t measure_and_publish(void) {
     patient_measurement_cycle();
     seq_nr_value++; //Incrementing the sequence number now and not on the backlog phase
 
-    retention_push(vitals_retention, &vitals_ret_head, &vitals_ret_count,
-                   &vitals_dropped, &current_vitals, active_alerts);
+    retention_store_vitals(&current_vitals, active_alerts);
 
     if(active_alerts != 0) {
       seq_nr_alert++;
-      retention_push(alert_retention, &alert_ret_head, &alert_ret_count,
-                     &alerts_dropped, &current_vitals, active_alerts);
+      retention_store_alert(&current_vitals, active_alerts);
     }
 
     LOG_DBG("Gateway down: buffered (v=%u a=%u, dropped v=%u a=%u)\n",
-            vitals_ret_count, alert_ret_count, vitals_dropped, alerts_dropped);
+            retention_vitals_count(), retention_alert_count(),
+            retention_vitals_dropped(), retention_alerts_dropped());
 
     return DEFAULT_PUBLISH_INTERVAL;
   }
@@ -1317,15 +903,15 @@ static clock_time_t measure_and_publish(void) {
       return RETENTION_FLUSH_INTERVAL;   /* retry next slot */
     }
     
-    if(retention_peek(alert_retention, alert_ret_head, alert_ret_count, &entry)) {
+    if(retention_peek_alert(&entry)) {
       if(publish_buffered(TOPIC_MSG_ALERT, &entry)) {
-        retention_commit(&alert_ret_count);
-        LOG_DBG("Flushed buffered alert (%u left)\n", alert_ret_count);
+        retention_commit_alert();
+        LOG_DBG("Flushed buffered alert (%u left)\n", retention_alert_count());
       }
-    } else if(retention_peek(vitals_retention, vitals_ret_head, vitals_ret_count, &entry)) {
+    } else if(retention_peek_vitals(&entry)) {
       if(publish_buffered(TOPIC_MSG_VITALS, &entry)) {
-        retention_commit(&vitals_ret_count);
-        LOG_DBG("Flushed buffered vitals (%u left)\n", vitals_ret_count);
+        retention_commit_vitals();
+        LOG_DBG("Flushed buffered vitals (%u left)\n", retention_vitals_count());
       }
     }
 
@@ -1378,6 +964,7 @@ static void on_mqtt_incoming(const char *topic, uint16_t topic_len,
   LOG_DBG("Incoming: topic='%s' (len=%u), payload_len=%u\n",
           topic, topic_len, payload_len);
 }
+
 /*---------------------------------------------------------------------------*/
 /*                     REGISTRATION FUNCTIONS                                */
 /*---------------------------------------------------------------------------*/
@@ -1483,59 +1070,86 @@ void print_patient_info() {
 // RESOURCE HANDLING FUNCTIONS
 /*---------------------------------------------------------------------------*/
 
-static struct etimer gateway_timer;
-static struct etimer et;
-static int flagRegistration = 0;
+//  Led colors are treated as strings, this funciton converts them to masks. 
+  //  The correct mask is platform dependent, this funciton maps the colors to the Nordic nRF52840 Dongle masks
+  int color_to_led_mask(char *color) {
 
-/*
- *  This function will be passed to COAP_BLOCKING_REQUEST() to handle responses
- */
-void client_chunk_handler(coap_message_t *response) {
+      if(strcmp(color, "RED") == 0) {
+          return LEDS_RED;
+      }
+      else if(strcmp(color, "GREEN") == 0) {
+          return LEDS_GREEN;
+      }
+      else if(strcmp(color, "BLUE") == 0) {
+          return LEDS_BLUE;
+      }
+      else if(strcmp(color, "YELLOW") == 0) {
+          return LEDS_RED | LEDS_GREEN;
+      }
+      else if(strcmp(color, "MAGENTA") == 0) {
+          return LEDS_RED | LEDS_BLUE;
+      }
+      else if(strcmp(color, "CYAN") == 0) {
+          return LEDS_GREEN | LEDS_BLUE;
+      }
+      else if(strcmp(color, "WHITE") == 0) {
+          return LEDS_RED | LEDS_GREEN | LEDS_BLUE;
+      }
 
-  const uint8_t *chunk;
-  uint8_t status;
-  int len;
+      return 0;
 
-  if(response == NULL) {
-    puts("Request timed out, will retry");
-    etimer_reset(&et);
-    return;
   }
 
-  status = response->code;
-  LOG_DBG("Response: %u.%02u\n", status / 32, status % 32);
+  //  Turn on the led with the specified color
+  void update_leds(char *color) {
 
-  len = coap_get_payload(response, &chunk);
+    leds_off(LEDS_ALL);
+    leds_on(color_to_led_mask(color));
 
-  char payload[128];
-
-  if(len <= 0 || len >= sizeof(payload)) {
-    LOG_DBG("Invalid payload\n");
-    return;
   }
 
-  memcpy(payload, chunk, len);
-  payload[len] = '\0';
+  //  Extract the color name from the payload received after an assistance request
+  int parse_led_color(const char *payload, int payload_len, char *color, int color_size) {
+    const char *key = "\"LED_COLOR\":\"";
+    const char *start;
+    const char *end;
+    int len;
 
-  if(parse_registration(payload, len, &patient_info.patient_id, &patient_info.triage_code, &nurse_addr) == 0) {
-    LOG_INFO("Device successfully registered\n");
-    print_patient_info();
-    flagRegistration = 1;
+    if(payload == NULL || color == NULL || color_size <= 0) {
+        return -1;
+    }
 
-  } else {
-    LOG_INFO("Patient info parsing error, will retry\n");
-    etimer_reset(&et);
+    //  Find the LED_COLOR key
+    start = strstr(payload, key);
+
+    if(start == NULL) {
+        return -1;
+    }
+
+    //  Move to the beginning of the value
+    start += strlen(key);
+
+    //  Look for the end of the value
+    end = strchr(start, '"');
+
+    if(end == NULL) {
+        return -1;
+    }
+
+    len = end - start;
+
+    //  Check is buffer size is sufficient
+    if(len >= color_size) {
+        return -1;
+    }
+
+    //  Copy the name color
+    memcpy(color, start, len);
+    color[len] = '\0';
+
+    return 0;
+
   }
-}
-
- void stop_observation(void) {
-
-    if(request_status) {
-      LOG_INFO("Stopping observation\n");
-      request_status = NULL;
-    } 
-  }
-
 
 //  Extract the target patient id and the request status from the observable resource notification
   int parse_status(const char *payload, int payload_len, long *patient_id, patient_status_t *status) {
@@ -1568,6 +1182,13 @@ void client_chunk_handler(coap_message_t *response) {
 
 }
 
+ void stop_observation(void) {
+
+    if(request_status) {
+      LOG_INFO("Stopping observation\n");
+      request_status = NULL;
+    } 
+  }
 
 //  Assistance request status (observable) handling
   /*
@@ -1674,86 +1295,46 @@ void client_chunk_handler(coap_message_t *response) {
 
   }
 
-//  Led colors are treated as strings, this funciton converts them to masks. 
-  //  The correct mask is platform dependent, this funciton maps the colors to the Nordic nRF52840 Dongle masks
-  int color_to_led_mask(char *color) {
+/*
+ *  This function will be passed to COAP_BLOCKING_REQUEST() to handle responses
+ */
+void client_chunk_handler(coap_message_t *response) {
 
-      if(strcmp(color, "RED") == 0) {
-          return LEDS_RED;
-      }
-      else if(strcmp(color, "GREEN") == 0) {
-          return LEDS_GREEN;
-      }
-      else if(strcmp(color, "BLUE") == 0) {
-          return LEDS_BLUE;
-      }
-      else if(strcmp(color, "YELLOW") == 0) {
-          return LEDS_RED | LEDS_GREEN;
-      }
-      else if(strcmp(color, "MAGENTA") == 0) {
-          return LEDS_RED | LEDS_BLUE;
-      }
-      else if(strcmp(color, "CYAN") == 0) {
-          return LEDS_GREEN | LEDS_BLUE;
-      }
-      else if(strcmp(color, "WHITE") == 0) {
-          return LEDS_RED | LEDS_GREEN | LEDS_BLUE;
-      }
+  const uint8_t *chunk;
+  uint8_t status;
+  int len;
 
-      return 0;
-
+  if(response == NULL) {
+    puts("Request timed out, will retry");
+    etimer_reset(&et);
+    return;
   }
 
-  //  Turn on the led with the specified color
-  void update_leds(char *color) {
+  status = response->code;
+  LOG_DBG("Response: %u.%02u\n", status / 32, status % 32);
 
-    leds_off(LEDS_ALL);
-    leds_on(color_to_led_mask(color));
+  len = coap_get_payload(response, &chunk);
 
+  char payload[128];
+
+  if(len <= 0 || len >= sizeof(payload)) {
+    LOG_DBG("Invalid payload\n");
+    return;
   }
 
-  //  Extract the color name from the payload received after an assistance request
-  int parse_led_color(const char *payload, int payload_len, char *color, int color_size) {
-    const char *key = "\"LED_COLOR\":\"";
-    const char *start;
-    const char *end;
-    int len;
+  memcpy(payload, chunk, len);
+  payload[len] = '\0';
 
-    if(payload == NULL || color == NULL || color_size <= 0) {
-        return -1;
-    }
+  if(parse_registration(payload, len, &patient_info.patient_id, &patient_info.triage_code, &nurse_addr) == 0) {
+    LOG_INFO("Device successfully registered\n");
+    print_patient_info();
+    flagRegistration = 1;
 
-    //  Find the LED_COLOR key
-    start = strstr(payload, key);
-
-    if(start == NULL) {
-        return -1;
-    }
-
-    //  Move to the beginning of the value
-    start += strlen(key);
-
-    //  Look for the end of the value
-    end = strchr(start, '"');
-
-    if(end == NULL) {
-        return -1;
-    }
-
-    len = end - start;
-
-    //  Check is buffer size is sufficient
-    if(len >= color_size) {
-        return -1;
-    }
-
-    //  Copy the name color
-    memcpy(color, start, len);
-    color[len] = '\0';
-
-    return 0;
-
+  } else {
+    LOG_INFO("Patient info parsing error, will retry\n");
+    etimer_reset(&et);
   }
+}
 
 //  This function will be passed to COAP_BLOCKING_REQUEST() to handle responses from the nurse
   void nurse_request_callback(coap_message_t *response) {
@@ -1796,9 +1377,6 @@ void client_chunk_handler(coap_message_t *response) {
 
 // RESOURCE HANDLING FUNCTIONS END
 /*---------------------------------------------------------------------------*/
-
-
-
 
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(patient_process, ev, data)

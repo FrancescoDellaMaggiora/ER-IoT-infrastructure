@@ -20,6 +20,8 @@ MODULES_REL += arch/platform/$(TARGET)
 
 # The MQTT transport is a separate module 
 # patient.c holds only the application logic.
+PROJECT_SOURCEFILES += senml.c
+PROJECT_SOURCEFILES += adaptive.c
 PROJECT_SOURCEFILES += mqtt-service.c
 PROJECT_SOURCEFILES += vitals-buffer.c
 PROJECT_SOURCEFILES += triage-report.c
