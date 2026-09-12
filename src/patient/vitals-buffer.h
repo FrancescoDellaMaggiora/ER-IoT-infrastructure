@@ -1,9 +1,9 @@
 /*---------------------------------------------------------------------------*/
 /*
  * ER-IOT-INFRASTRUCTURE
- * vitals-buffer.h - Sliding window of recent readings, fed to the CNN
+ * vitals-buffer.h - Sliding window of recent readings, fed to the MLP
  *
- * The triage CNN takes a window of
+ * The triage MLP takes a window of
  * VITALS_WINDOW consecutive readings, each with VITALS_FEATURES values.
  * This module keeps that window as a circular buffer: every measurement
  * cycle pushes one reading, and once the buffer has filled up the flat
@@ -32,18 +32,18 @@
 #define VITALS_IDX_SPO2  4
 #define VITALS_IDX_TEMP  5
 /*---------------------------------------------------------------------------*/
-/** Empties the buffer. Call once at startup. */
+/** Empties the buffer. Called once at startup. */
 void vitals_buffer_init(void);
 
 /**
  * Pushes one reading, overwriting the oldest one when full.
- * Call once per measurement cycle, after the vitals have been updated.
+ * Called once per measurement cycle, after the vitals have been updated.
  */
 void vitals_buffer_push(const patient_vitals_t *vitals);
 
 /**
- * True once VITALS_WINDOW readings have been pushed - i.e. the model
- * can be run. Before that, the window is incomplete and a prediction
+ * True once VITALS_WINDOW readings have been pushed (i.e. the model
+ * can be run). Before that, the window is incomplete and a prediction
  * would be based on padding.
  *
  * With one reading per publish slot, this becomes true only after

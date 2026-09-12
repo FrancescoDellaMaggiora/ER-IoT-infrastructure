@@ -22,7 +22,6 @@
 #define LOG_LEVEL  LOG_LEVEL_APP
 
 //  Server address
-//  %TODO: Use the correct address
 #define SERVER_ADDR "coap://[fe80::201:1:1:1]"
 
 #define REMOTE_PORT UIP_HTONS(COAP_DEFAULT_PORT)
@@ -48,7 +47,7 @@ AUTOSTART_PROCESSES(&er_client);
 /*---------------------------------------------------------------------------*/
 //  UTILITY FUNCTIONS
 
-  //  %TODO: This is hard-coded
+  //  Debug function
   void init_patient(patient_data_t *patient) {
 
     patient->patient_id = node_id;
@@ -191,7 +190,7 @@ AUTOSTART_PROCESSES(&er_client);
 /*---------------------------------------------------------------------------*/
 // RESOURCE HANDLING FUNCTIONS
 
-  //  This function is will be passed to COAP_BLOCKING_REQUEST() to handle responses
+  //  This function will be passed to COAP_BLOCKING_REQUEST() to handle responses
   void client_chunk_handler(coap_message_t *response) {
 
     const uint8_t *chunk;
@@ -230,8 +229,8 @@ AUTOSTART_PROCESSES(&er_client);
     
   }
 
-  //  Handle the response to the observe request and the following notifications
   /*
+    Suppose a client (patient) performs an assistance request.
     The client observes the /er/patient/assistance/status resource.
 
     As soon as the status of a request changes (i.e. the nurse aknowledges it), a notification is sent to all the clients observing 
@@ -242,6 +241,8 @@ AUTOSTART_PROCESSES(&er_client);
       "PATIENT_ID": <id>,
       "STATUS":     <status>
     }
+    
+    Patients can understand if their request has been aknowledged based on the "PATIENT_ID" field
   */
   static void notification_callback(coap_observee_t *obs, void *notification, coap_notification_flag_t flag) {
 

@@ -8,9 +8,7 @@
 #include <math.h>
 #include <string.h>
 
-/* emlearn generated model.
- * TODO: rename to whatever the notebook produced (it is named after the
- * window size: triage_w20.h -> struct triage_w20). */
+/* emlearn generated model */
 #include "triage_w20.h"
 #define ML_MODEL triage_w20
 
@@ -144,10 +142,7 @@ triage_model_predict(void)
   LOG_INFO("Predicted class %u (p=%d%%)\n",
           class_idx+1, (int)(probabilities[class_idx] * 100));
 
-  /* The network outputs a class INDEX 0-4; triage codes run 1-5.
-   * TODO: confirm against CODE_LABELS in the notebook - if the labels
-   * were built as (code - 1), this +1 is right; if they were stored as
-   * the codes themselves, drop it. */
+  /* The network outputs a class INDEX 0-4; triage codes run 1-5. */
   return (uint8_t)(class_idx + 1);
 }
 /*---------------------------------------------------------------------------*/

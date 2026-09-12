@@ -22,7 +22,7 @@
 #endif
 /*---------------------------------------------------------------------------*/
 /* Payload: {"PATIENT_ID":2147483647,"TRIAGE_CODE":5} is 45 chars, so 64
- * leaves room without being wasteful. */
+ * leaves some margin without being wasteful. */
 #define PAYLOAD_BUF_SIZE 64
 
 /*

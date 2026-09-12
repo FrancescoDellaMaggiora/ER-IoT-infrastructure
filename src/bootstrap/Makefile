@@ -14,7 +14,6 @@ MODULES += $(CONTIKI_NG_APP_LAYER_DIR)/coap
 DEVICE_ID ?= 1
 CFLAGS += -DDEVICE_ID=$(DEVICE_ID)
 
-#	%TODO: This can be removed if needed. It's used to not treat warnings as errors, otherwise Contiki doesn't compile on my PC (ALE)
 CFLAGS += -Wno-error=discarded-qualifiers
 
 include $(CONTIKI)/Makefile.include

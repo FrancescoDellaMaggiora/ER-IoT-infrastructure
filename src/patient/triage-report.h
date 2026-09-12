@@ -3,7 +3,7 @@
  * triage-report.h - Reports an autonomous triage-code change to the Cloud
  *
  * When the on-device model decides the patient's triage code has
- * changed, the Cloud must be told:
+ * changed, the following CoAP request is sent to the cloud:
  *
  *   PUT coap://<cloud>/er/patient/triage-report
  *   { "PATIENT_ID": <int>, "TRIAGE_CODE": <int 1-5> }
@@ -43,7 +43,7 @@
 
 #define TRIAGE_REPORT_URI "/er/patient/triage-report"
 /*---------------------------------------------------------------------------*/
-/** Parses the Cloud endpoint. Call once at startup. */
+/** Parses the Cloud endpoint. Called once at startup. */
 void triage_report_init(void);
 
 /**

@@ -1,8 +1,9 @@
 /**
  * CoAP resource: /dept/signal
  *
- * A peer department BR PUTs here a single ASCII digit = ITS OWN dept id
- * ("who is calling"). This node stores the caller and lights the RGB LED
+ * A peer department BR PUTs here a single ASCII digit (i.e. ITS OWN DEPT_ID)
+ * to determine "who is calling". 
+ * This node stores the caller and lights the RGB LED
  * with the caller's colour (see dept-signal.h for the mapping).
  *
  * The signal is cleared ONLY locally (button press on this BR): there is
@@ -38,7 +39,7 @@
 /* Current caller: -1 = idle */
 static int caller = -1;
 
-/* Colour of each department on the RGB LED (index = dept id). */
+/* Colour of each department, index = dept id (e.g. pediatrico has ID 0, so dept_colour[0] is the colour of pediatrico). */
 static const unsigned char dept_colour[DEPT_COUNT] = {
   LEDS_RED,                  /* 0 pediatrico                */
   LEDS_GREEN,                /* 1 ostetrico-ginecologico    */
@@ -78,7 +79,7 @@ void dept_signal_raise(uint8_t caller_id)
 {
   /* Last caller wins: if two departments call before the local staff
    * acknowledges, the LED shows the most recent one. All calls are in
-   * the log. TODO: document this policy in the report. */
+   * the log. */
   caller = caller_id;
   dept_signal_refresh_led();
 }

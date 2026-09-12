@@ -25,7 +25,7 @@
         - status (either idle or with a pending assistance request)
 
     When a patient sends a new request all that's needed is the patient id and the request timestamp (used to determine its priority), the triage code is extracted from the association array.
-    So, assistance request cannot bring new information about the triage code, it is already knonw and computed by others.
+    So, assistance requests cannot bring new information about the triage code, it is already knonw and computed by others.
 
     This file and its header handle these data structures.
 */
@@ -402,7 +402,7 @@ int update_patient_triage(int patient_id, int triage_code) {
 /*---------------------------------------------------------------------------*/
 //  REQUEST FUNCTIONS
 
-//  These funcitons handle patient requests and the "request_queue" array.
+//  These functions handle patient requests and the "request_queue" array.
 //  Requests can be added to the queue based on their priority and removed from the queue.
 
 //  Add an assistance request to the queue

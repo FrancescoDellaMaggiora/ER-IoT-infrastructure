@@ -34,7 +34,7 @@
 /**
  * Runs the model on the current window.
  *
- * Return the predicted triage code, 1 (red) to 5 (white), or 0 if the
+ * Returns the predicted triage code, 1 (red) to 5 (white), or 0 if the
  * window is not full yet or the inference failed. 0 is never a
  * valid code, so the caller can use it as "no prediction".
  */

@@ -58,8 +58,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 /*---------------------------------------------------------------------------*/
-/* MQTT broker address: kept overridable from project-conf.h.
- * TODO: Use the correct IPv6 address (project-conf.h) */
+/* MQTT broker address: kept overridable from project-conf.h. */
 #ifdef MQTT_CLIENT_CONF_BROKER_IP_ADDR
 #define MQTT_SERVICE_BROKER_IP_ADDR MQTT_CLIENT_CONF_BROKER_IP_ADDR
 #else
@@ -82,7 +81,7 @@
  *
  * on_publish_slot: called every time the service is connected, idle
  *   and the publish timer expired.
- *   The application performs its measurement cycle and its publishes
+ *   The application performs its measurement cycle and it publishes
  *   here, then RETURNS THE INTERVAL until the next slot. This is how
  *   the app - not the service - decides the publish rate (e.g. the
  *   1 s alert rate vs the 30 s routine rate).
@@ -98,7 +97,7 @@ typedef void (*mqtt_service_incoming_cb_t)(const char *topic,
                                            uint16_t payload_len);
 /*---------------------------------------------------------------------------*/
 /**
- * Initialise the service and kick the connection state machine.
+ * Initialize the service and kickstart the connection state machine.
  *
  * Must be called from the application process (PROCESS_BEGIN section):
  * the internal timers are bound to the calling process, and 'app_process'
@@ -136,14 +135,13 @@ mqtt_status_t mqtt_service_subscribe(char *topic);
 
 /**
  * True when the connection is up and no packet is in flight,
- * i.e. a publish attempted now will not be refused by the library.
+ * i.e. a publish attempt will not be refused by the library.
  */
 bool mqtt_service_ready(void);
 
 /**
  * Manual recovery hook: if the service gave up (error state after too
- * many reconnect attempts), restart the connection attempts. Wired to
- * the button in patient.c, as in the original example.
+ * many reconnect attempts), restart the connection attempts.
  */
 void mqtt_service_recover(void);
 

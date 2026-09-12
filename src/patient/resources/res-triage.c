@@ -12,9 +12,7 @@
 #define LOG_LEVEL LOG_LEVEL_APP
 
 /*
- *  The cloud application informs the patient device that its triage code
- *  changed. This covers both a doctor changing it from the DoctorApp and
- *  the cloud propagating a change decided elsewhere.
+ *  This resource is used to inform a patient device that its triage code has been changed.
  *
  *  Payload JSON format:
  *  {

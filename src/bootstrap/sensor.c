@@ -30,7 +30,6 @@
 #endif
 
 //  Server address
-//  %TODO: Use the correct address
 #define SERVER_ADDR "coap://[fe80::201:1:1:1]"
 
 /*
@@ -181,7 +180,7 @@ static struct etimer et;
 /*---------------------------------------------------------------------------*/
 // RESOURCE HANDLING FUNCTIONS
 
-    //  This function is will be passed to COAP_BLOCKING_REQUEST() to handle responses
+    //  This function will be passed to COAP_BLOCKING_REQUEST() to handle responses
     void client_chunk_handler(coap_message_t *response) {
 
         const uint8_t *chunk;

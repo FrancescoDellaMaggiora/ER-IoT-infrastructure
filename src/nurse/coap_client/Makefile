@@ -10,7 +10,6 @@ CONTIKI= ../../../../..
 include $(CONTIKI)/Makefile.dir-variables
 MODULES += $(CONTIKI_NG_APP_LAYER_DIR)/coap
 
-#	%TODO: This can be removed if needed. It's used to not treat warnings as errors, otherwise Contiki doesn't compile on my PC (ALE)
 CFLAGS += -Wno-error=discarded-qualifiers
 
 include $(CONTIKI)/Makefile.include

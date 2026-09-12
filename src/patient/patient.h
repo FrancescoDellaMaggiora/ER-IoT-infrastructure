@@ -59,7 +59,6 @@
 
 /*---------------------------------------------------------------------------*/
 
-//  ALESSANDRO: I wrote this code
 //  These macros are used, together with PATIENT_ID, to construct topic names.
 //
 //  - PUB_TOPIC_NAME is the topic namespace
@@ -83,12 +82,9 @@
 
 /*---------------------------------------------------------------------------*/
 
-//  ALESSANDRO: I wrote this code
-//
 //  These macros are bitmasks used to define what sensors are attached to the
 //  patient (using the "attached_sensors" variable).
 //
-//  TODO: decide what units of measurement to use:
 //  The used units are listed as well as they are needed to build the SenML
 //  JSON payload.
 //  "beat/min" and "Cel" are compliant with RFC 8428, whereas "/100" is a
@@ -173,7 +169,7 @@ typedef enum {
 
 
 /*
- * Data structure for memorize the Simulation Parameters 
+ * Data structure to memorize simulation parameters 
  */
 
 typedef struct {
@@ -186,7 +182,6 @@ typedef struct {
 extern const simulation_parameters_t SIMULATION_VALUES[SIM_PARAM_COUNT];
 
 /*Device and triage*/
-
 
 //  Triage emergency color codes
 typedef enum {
@@ -219,7 +214,7 @@ typedef struct {
 /*---------------------------------------------------------------------------*/
 // RESOURCE HANDLING FUNCTIONS
 
-//  This function is will be passed to COAP_BLOCKING_REQUEST() to handle responses
+//  This function will be passed to COAP_BLOCKING_REQUEST() to handle responses
 void client_chunk_handler(coap_message_t*);
 
 // RESOURCE HANDLING FUNCTIONS END

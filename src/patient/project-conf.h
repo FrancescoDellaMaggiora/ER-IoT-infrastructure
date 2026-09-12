@@ -64,7 +64,7 @@
 /* How long the node stays in the DAG after losing its preferred parent
  * before leaving and dropping the default route. The rpl-lite default is
  * 5 minutes: far too long to demonstrate a gateway failure, and it is
- * this parameter - not the route lifetime above - that governs when
+ * this parameter (not the route lifetime above) that determines when
  * uip_ds6_defrt_choose() finally returns NULL. */
 #define RPL_CONF_DELAY_BEFORE_LEAVING (90 * CLOCK_SECOND)
 

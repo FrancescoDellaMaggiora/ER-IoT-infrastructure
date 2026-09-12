@@ -31,16 +31,6 @@ Patient node - application logic
     make TARGET=<target> PATIENT_ID=<number>
 
   MQTT CLIENT_ID has this format: patient-<PATIENT_ID> (e.g. patient-1)
-
-  TODOs:
-    TODO: Use the correct IPv6 address (project-conf.h)
-    TODO: Write a better vitals initialization function (patient.c)
-
-    //  SENSORS CAN'T RECEIVE MESSAGES YET:
-    TODO: If needed, modify on_mqtt_incoming to handle received MQTT
-          messages or commands (patient.c)
-    TODO: If needed, modify construct_sub_topic() to create the correct
-          topic for our use-case (patient.c)
 */
 
 #include "contiki.h"
@@ -75,14 +65,11 @@ Patient node - application logic
 #endif
 
 /*---------------------------------------------------------------------------*/
-/* Feature flag: subscription support.
- * SENSORS CAN'T RECEIVE MESSAGES YET: set to 1 once the node needs to
- * receive commands, then adapt construct_sub_topic() and
- * on_mqtt_incoming() below. */
+/* Feature flag: subscription support. */
 #define PATIENT_SUBSCRIBE_ENABLED 0
 /*---------------------------------------------------------------------------*/
 
-/* Publish intervals.
+/* Vitals publish intervals.
  * The rate policy lives HERE (application), not in the MQTT service:
  * on_publish_slot() returns the delay until the next slot.
  * Publish every 30 seconds
@@ -90,15 +77,14 @@ Patient node - application logic
 #define DEFAULT_PUBLISH_INTERVAL    (30 * CLOCK_SECOND)
 
 /*
- * Alert Interval
- * The rate for publish an alert.
- * Publish every 1 second
+ * Alerts publish interval
+ * Publish alerts every second
  */
 #define ALERT_PUBLISH_INTERVAL      (1 * CLOCK_SECOND)
 
 /* Checked on its own timer, not from on_publish_slot(): that slot only
  * fires when MQTT is idle and ready, so it becomes rarer exactly when
- * the gateway is failing - the detector would starve precisely when it
+ * the gateway is failing, the detector would starve precisely when it
  * is needed. */
 #define GATEWAY_CHECK_INTERVAL (5 * CLOCK_SECOND)
 
@@ -113,7 +99,7 @@ Patient node - application logic
 static char REGISTRATION_URI[URI_SIZE];
 
 /*
- * URI for ask assistance to a nurse 
+ * URI to ask for nurse assistance
  */
 #define ASSISTANCE_URI "/er/patient/assistance"
 /*---------------------------------------------------------------------------*/
@@ -138,7 +124,7 @@ static char sub_topic[BUFFER_SIZE];
  *
  * Zero for a live reading; set by publish_buffered() to the age of a
  * replayed one. The payload builders read it the same way they read
- * current_vitals - a global rather than a parameter, because publish()
+ * current_vitals, a global rather than a parameter, because publish()
  * sits between them and threading it through would mean changing every
  * signature for a value that is zero in the normal case.
  */
@@ -161,12 +147,7 @@ static char registration_app_buffer[APP_BUFFER_SIZE];
 static struct etimer measure_timer;
 
 /*---------------------------------------------------------------------------*/
-/*  The sequence number is associated to a measurement cycle, so vital +
- *  alert, e.g.:
- *    measurement cycle #1 -> vitals #1
- *    measurement cycle #2 -> vitals #2, alert #2
- *
- *  As of now, this number never gets transmitted anywhere
+/*  Sequence numbers
  */
 uint16_t seq_nr_value = 0;
 uint16_t seq_nr_alert = 0;
@@ -199,7 +180,7 @@ static patient_vitals_t current_vitals;
 process_event_t discharge_event;
 
 /*
- * Event triggered during a assistance request
+ * Event triggered during an assistance request
  */
 static process_event_t stop_observation_event;
 
@@ -238,8 +219,8 @@ clock_time_t last_RTT = 0;
 /*
  * Simulation Parameters
  * 
- * If the macro URGENT is set to 1, the vitals converge fast to red code.
- * Otherwhise, whenever the marco URGENT is set to 0 the vitals converge fast to white code.
+ * If the macro URGENT is set to 1, vitals quickly converge to red code zone.
+ * Otherwhise, whenever the marco URGENT is set to 0 vitals quickly converge to a white code.
  */
 
 #if URGENT
@@ -270,7 +251,7 @@ const simulation_parameters_t SIMULATION_VALUES[SIM_PARAM_COUNT] = {
  * The published vitals are integers, but the AR(1) process MUST NOT be
  * iterated on them: casting to int truncates toward zero, so positive
  * noise is discarded while negative noise is amplified. That is a
- * systematic -0.5/step drift, not noise - the mean reversion then
+ * systematic -0.5/step drift, not noise, the mean reversion then
  * settles at whatever deviation makes the pull cancel it (SpO2 ended up
  * stuck at 56 instead of 98). Keeping the state as float and rounding
  * only for publication removes the bias entirely.
@@ -295,7 +276,7 @@ static uint8_t candidate_streak = 0;
 /*
  * A single refused publish means nothing: it happens routinely when the
  * previous message has not left the queue yet. What indicates congestion
- * is a SEQUENCE of refusals - the queue never draining across several
+ * is a SEQUENCE of refusals, i.e. the queue never draining across several
  * consecutive slots.
  *
  * The thresholds are asymmetric on purpose: entering quickly protects
@@ -342,7 +323,7 @@ static void congestion_update(bool publish_ok)
 /*
  * Under congestion, low-priority patients stop sending ROUTINE vitals:
  * network triage mirroring clinical triage. Alerts are never suppressed
- * - a deteriorating white-code patient must still be able to raise one,
+ * as a deteriorating white-code patient must still be able to raise one,
  * and that is precisely what makes the mechanism safe to apply.
  */
 static bool should_suppress_vitals(void)
@@ -374,8 +355,8 @@ static bool should_suppress_vitals(void)
 /*
  * Detecting a dead border router.
  *
- * Nothing notifies the node: the BR simply stops answering:
- *   - the default route, which RPL removes once the BR's DIOs stop
+ * Nothing notifies the node: the BR simply stops answering.
+ *     The default route is checked, which RPL removes once the BR's DIOs stop
  *     arriving. Faster and more reliable than waiting for TCP to time
  *     out, and it is the same check mqtt-service already uses to decide
  *     whether it is worth connecting at all;
@@ -398,7 +379,7 @@ static void gateway_update(void)
    * RPL stops receiving its DIOs and removes the default route. Checking
    * the routing table directly is faster and more reliable than waiting
    * for TCP to time out on the MQTT connection, and it isolates the
-   * failure we actually care about - the gateway - from an unrelated
+   * failure we actually care about (the gateway) from an unrelated
    * broker outage, which would look identical through the MQTT state.
    */
   bool reachable = (uip_ds6_defrt_choose() != NULL);
@@ -442,7 +423,7 @@ static bool gateway_is_down(void)
  * the alert bitmask), not the built JSON.
  *
  * Vitals and alerts are kept apart so a burst of routine readings can
- * never push an alert out of the window - the two fill up at their own
+ * never push an alert out of the window, the two fill up at their own
  * pace and the alert buffer only grows when something is actually wrong.
  */
 #define RETENTION_CAPACITY 16
@@ -482,7 +463,7 @@ retention_push(buffered_reading_t *buf, uint8_t *head, uint8_t *count,
     (*count)++;
   } else {
     /* Full: the write above overwrote the oldest entry, and head now
-     * points at the new oldest. Newest-wins on purpose - during a long
+     * points at the new oldest. Newest-wins on purpose, during a long
      * outage the recent clinical picture matters more than the stale one. */
     (*dropped)++;
   }
@@ -491,7 +472,7 @@ retention_push(buffered_reading_t *buf, uint8_t *head, uint8_t *count,
 /* 
  * Reads the oldest entry WITHOUT removing it. The entry is dropped only
  * once the publish is accepted (retention_commit), so a refused publish
- * does not lose the reading - which would defeat the whole mechanism.
+ * does not lose the reading, which would defeat the whole mechanism.
  */
 static bool retention_peek(
   const buffered_reading_t *buf,
@@ -614,7 +595,6 @@ static int construct_pub_topic(void)
   len = snprintf(alert_topic, BUFFER_SIZE, "%s/%ld/%s", PUB_TOPIC_NAME,
                  patient_info.patient_id, PATIENT_ALERT);
 
-  /* len < 0: Error. Len >= BUFFER_SIZE: Buffer too small */
   if(len < 0 || len >= BUFFER_SIZE) {
     LOG_INFO("Alert topic is too long (topic_len: %d, max_size: %d)\n",
              len, BUFFER_SIZE);
@@ -707,9 +687,9 @@ static void patient_vitals_init(void)
   This support function is used to randomly variate vitals.
   To do this, we use the same approch suggested in:
 
-  Real-time prediction of trauma-induced coagulopathy using an inverted transformer
+  << Real-time prediction of trauma-induced coagulopathy using an inverted transformer
   (trauma-former): a methodological feasibility and simulation study based on the ADEMP
-  framework 
+  framework >>
 
   The formula is the following:
 
@@ -761,7 +741,7 @@ static uint16_t sim_advance(float *state, simulation_parameters_t par, float lo,
  *
  *  These fixed thresholds are the "Level 1" clinical safety net of the
  *  project design: they are deterministic and independent from any other
- *  mechanism. The publish rate consequence (1 s instead of 30 s) is
+ *  mechanism. The publish rate variation (1s instead of 30s) is
  *  applied in on_publish_slot().
 */
 static void patient_measurement_cycle(void)
@@ -943,7 +923,7 @@ static void senml_add_int(senml_builder_t *b, const char *name, const char *unit
 }
 
 /*
- * Adding the t kay
+ * Adding the 't' key
  *
  * Live readings emit no 't' at all: age zero means "now", which is the
  * default the receiver already assumes.
@@ -1142,7 +1122,7 @@ static int build_payload_registration(char *buffer, int buffer_size)
 /* Publishing                                                                */
 /*---------------------------------------------------------------------------*/
 /* 
- *  ALESSANDRO: This function accepts the topic to publish as input
+ *  This function accepts the topic to publish on as input
  *  (before it was publish(void)). Moreover, it uses 
  *  functions to produce the correct SenML payload.
  */
@@ -1254,7 +1234,7 @@ static bool alert_pending = false;
  *
  * Driven by measure_timer, not by the MQTT service: tying it to the
  * connection being idle meant the node stopped measuring exactly when
- * the gateway failed - the moment retention matters most. Publishing
+ * the gateway failed, a.k.a. the moment retention matters most. Publishing
  * may now be refused if a previous message is still in flight, which is
  * tolerable for routine vitals and handled explicitly when flushing the
  * backlog (the entry is committed only on success).
@@ -1267,7 +1247,7 @@ static clock_time_t measure_and_publish(void) {
   /* 
    * Gateway check comes first: with a dead gateway nothing can leave the
    * node, so publishing a deferred alert here would just hang on a
-   * connection that is gone - and the node would never get back to
+   * connection that is gone and the node would never get back to
    * measuring or buffering.
    */
   if(gateway_is_down()) {
@@ -1350,7 +1330,7 @@ static clock_time_t measure_and_publish(void) {
   } else if(!mqtt_service_ready()) {
     
     /* The previous message is still going out. Attempting anyway just
-     * gets refused and keeps the queue from draining - decoupling the
+     * gets refused and keeps the queue from draining. Decoupling the
      * cycle from MQTT removed the natural back-pressure the service
      * used to provide, so it has to be checked explicitly. */
     LOG_INFO("MQTT busy, skipping this publish\n");
@@ -1371,7 +1351,7 @@ static clock_time_t measure_and_publish(void) {
 }
 
 /*
- * MQTT no longer drives the cycle - measure_timer does. This callback
+ * MQTT no longer drives the cycle, measure_timer does. This callback
  * exists only to satisfy the service's interface.
  */
 static clock_time_t on_publish_slot(void)
@@ -1497,7 +1477,7 @@ static struct etimer et;
 static int flagRegistration = 0;
 
 /*
- *  This function is will be passed to COAP_BLOCKING_REQUEST() to handle responses
+ *  This function will be passed to COAP_BLOCKING_REQUEST() to handle responses
  */
 void client_chunk_handler(coap_message_t *response) {
 
@@ -1578,7 +1558,7 @@ void client_chunk_handler(coap_message_t *response) {
 }
 
 
-//  Handle the response to the observe request and the following notifications
+//  Assistance request status (observable) handling
   /*
     The client observes the /er/patient/assistance/status resource.
 
@@ -1764,7 +1744,7 @@ void client_chunk_handler(coap_message_t *response) {
 
   }
 
-//  This function is will be passed to COAP_BLOCKING_REQUEST() to handle responses for the nurse
+//  This function will be passed to COAP_BLOCKING_REQUEST() to handle responses from the nurse
   void nurse_request_callback(coap_message_t *response) {
 
     const uint8_t *chunk;
@@ -1820,7 +1800,7 @@ PROCESS_THREAD(patient_process, ev, data)
   vitals_buffer_init();
   triage_report_init();
 
-  //  The device tries to register after 1 minute it's on
+  //  The device tries to register after some time it's on
   etimer_set(&et, 10 * CLOCK_SECOND);
 
   //  Set the resource URI /er/patient/registration/<DEVICE_ID>
@@ -1853,8 +1833,9 @@ PROCESS_THREAD(patient_process, ev, data)
       LOG_INFO("\n--Registration request sent--\n");
     }
   }
-  // This event is needed to stopp observing the nurse
+  // This event is needed to stop observing assistance requests status
   stop_observation_event = process_alloc_event(); 
+
   // This event is needed by the discharge resource to interrupt all MQTT and COAP communication
   discharge_event = process_alloc_event();
 
@@ -1898,7 +1879,7 @@ PROCESS_THREAD(patient_process, ev, data)
                     on_mqtt_connected, on_publish_slot, on_mqtt_incoming);
 
 
-  //Timer to check the gateway status
+  //  Timer to check the gateway status
   etimer_set(&gateway_timer, GATEWAY_CHECK_INTERVAL);
   LOG_INFO("Gateway timer armed, interval=%lu ticks\n",
            (unsigned long)GATEWAY_CHECK_INTERVAL);
@@ -1948,7 +1929,7 @@ PROCESS_THREAD(patient_process, ev, data)
     if(ev == button_hal_release_event &&
        ((button_hal_button_t *)data)->unique_id == BUTTON_HAL_ID_BUTTON_ZERO) {
       
-        //When press the button, ask for help to a nurse<
+        //  When the button is pressed, an assistance request is sent to the nurse
         LOG_INFO("--Button pressed--\n");
 
         /* prepare request, TID is set by COAP_BLOCKING_REQUEST() */

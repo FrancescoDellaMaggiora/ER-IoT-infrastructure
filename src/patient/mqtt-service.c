@@ -86,9 +86,6 @@
 /*---------------------------------------------------------------------------*/
 /* Status LED: on/blinking during the connection phases, one short blink
  * per publish slot. Overridable from project-conf.h. 
- * 
- * Frank: (visibly tired) I don't know whether I like or not this usege of the leds ...
- *        (thinking) maybe we can remove this. Ale, what do you think?
  */
 #ifdef MQTT_CLIENT_CONF_STATUS_LED
 #define STATUS_LED MQTT_CLIENT_CONF_STATUS_LED
@@ -103,7 +100,7 @@
  * happen (e.g. to connect or to disconnect) */
 #define STATE_MACHINE_PERIODIC     (CLOCK_SECOND >> 1)
 
-/* A timeout used when waiting to connect to a network */
+/* A timeout used when waiting for a network connection */
 #define NET_CONNECT_PERIODIC       (CLOCK_SECOND >> 2)
 
 /* Provide visible feedback via LEDS during various states */
@@ -118,7 +115,7 @@
 #define RETRY_FOREVER              0xFF
 #define RECONNECT_INTERVAL         (CLOCK_SECOND * 2)
 /*
- * Number of times to try reconnecting to the broker.
+ * Number of broker reconnection attempts.
  * Can be a limited number (e.g. 3, 10 etc) or can be set to RETRY_FOREVER
  */
 #define RECONNECT_ATTEMPTS         RETRY_FOREVER
@@ -145,7 +142,6 @@ static struct process *app_process;
 /* Client id, provided (and kept alive) by the application */
 static char *client_id;
 
-//  ALE:
 //  This variable is used to stop the service in case of a discharge request
 static bool service_stopped;
 
@@ -239,7 +235,7 @@ mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
   }
   case MQTT_EVENT_SUBACK: {
     
-    #if MQTT_31 //???
+    #if MQTT_31 
       LOG_DBG("Application is subscribed to topic successfully\n");
     #else
         struct mqtt_suback_event *suback_event = (struct mqtt_suback_event *)data;
@@ -292,7 +288,7 @@ state_machine(void)
 {
   switch(state) {
   case STATE_INIT:
-    /* If we have just been initialised, register the MQTT connection */
+    /* If we have just been initialized, register the MQTT connection */
     mqtt_register(&conn, app_process, client_id, mqtt_event,
                   MAX_TCP_SEGMENT_SIZE);
 
@@ -373,8 +369,8 @@ state_machine(void)
        * Our publish timer fired, but some MQTT packet is already in flight
        * (either not sent at all, or sent but not fully ACKd).
        *
-       * This can mean that we have lost connectivity to our broker or that
-       * simply there is some network delay. In both cases, we refuse to
+       * This can mean that we have lost connectivity to our broker or there
+       * might simply be some network delay. In both cases, we refuse to
        * trigger a new message and we wait for TCP to either ACK the entire
        * packet after retries, or to timeout and notify us.
        */
@@ -445,7 +441,7 @@ mqtt_service_init(struct process *process, char *id,
 
   state = STATE_INIT;
 
-  /* Kick the state machine as soon as the process starts its loop.
+  /* Kickstart the state machine as soon as the process starts its loop.
    * NOTE: etimer_set() binds the timer to the CALLING process, which
    * is why this function must be called from the application process. */
   etimer_set(&fsm_timer, 0);

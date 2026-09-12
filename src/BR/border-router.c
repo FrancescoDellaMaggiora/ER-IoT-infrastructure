@@ -17,7 +17,7 @@
  *        - If a call is currently shown on the LED, the FIRST press only
  *          acknowledges/clears it (it does not count as a click).
  *
- * What is intentionally NOT here: MQTT (vitals traffic is routed
+ * What is deliberately NOT here: MQTT (vitals traffic is routed
  * transparently at the IP layer).
  */
 
@@ -59,8 +59,7 @@
  *
  * NOTE: each department is a separate RPL network; BR<->BR traffic
  * transits through the backbone (the host running the tunslip6
- * instances must forward IPv6 between the tun interfaces).
- * TODO: replace with the real prefixes. */
+ * instances must forward IPv6 between the tun interfaces). */
 static const char *dept_endpoints[DEPT_COUNT] = {
   #if CONTIKI_TARGET_COOJA
     "coap://[fe80::201:1:1:1]",   /* 0 pediatrico                */
@@ -160,7 +159,7 @@ PROCESS_THREAD(er_border_router_process, ev, data)
       coap_init_message(request, COAP_TYPE_CON, COAP_PUT, 0);
       coap_set_header_uri_path(request, "/dept/signal");
 
-      /* Payload = OUR dept id, so the callee knows who is calling */
+      /* Payload = OUR dept id, so the called dept knows who is calling */
       payload = (uint8_t)('0' + MY_DEPT_ID);
       coap_set_payload(request, &payload, 1);
 

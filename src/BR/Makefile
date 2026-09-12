@@ -4,7 +4,7 @@ all: $(CONTIKI_PROJECT)
 CONTIKI = ../../../../..
 
 # Department identity of this BR, one firmware for all departments:
-#   make TARGET=cooja DEPT_ID=2
+#   make TARGET=cooja DEPT_ID=<number>
 #   0 pediatrico, 1 ostetrico-ginecologico, 2 agitazione psico-motoria,
 #   3 disabilita' complessa, 4 vittime di violenza, 5 malato infettivo
 DEPT_ID ?= 0

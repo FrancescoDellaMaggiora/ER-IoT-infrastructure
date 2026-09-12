@@ -49,7 +49,7 @@ PROCESS_THREAD(er_server, ev, data)
       int patients_to_add = DBG_ADD_PATIENT > MAX_PATIENT_NUMBER ? MAX_PATIENT_NUMBER : DBG_ADD_PATIENT;
       int i;
 
-      //  %TODO: This is hard-coded (obviously, this is for debugging purpouses)
+      //  Hard-coded for debugging purpouses
       for(i = 1; i <= patients_to_add; i++)
         add_patient(i, "RSSMRA800", "Mario", "Rossi", CODE_BLUE, 1, 1);
 

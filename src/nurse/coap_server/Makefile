@@ -27,7 +27,6 @@ CFLAGS += -DNURSE_DBG=$(NURSE_DBG)
 DBG_ADD_PATIENT ?= 0
 CFLAGS += -DDBG_ADD_PATIENT=$(DBG_ADD_PATIENT)
 
-#	%TODO: This can be removed if needed. It's used to not treat warnings as errors, otherwise Contiki doesn't compile on my PC (ALE)
 CFLAGS += -Wno-error=discarded-qualifiers
 
 include $(CONTIKI)/Makefile.include

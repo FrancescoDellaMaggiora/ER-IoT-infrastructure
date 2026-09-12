@@ -9,7 +9,7 @@
  *   4 = vittime di violenza
  *   5 = malato infettivo
  *
- * RGB colour of the caller (one LED, 6 combinations):
+ * Caller RGB LED color (one LED, 6 combinations):
  *   0 red, 1 green, 2 blue, 3 yellow (R+G), 4 magenta (R+B), 5 cyan (G+B)
  */
 
