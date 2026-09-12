@@ -44,6 +44,7 @@ Patient node - application logic
 */
 
 #include "contiki.h"
+#include "contiki-net.h"
 #include "dev/button-hal.h"
 #include "os/sys/log.h"
 
@@ -56,6 +57,7 @@ Patient node - application logic
 
 #include "coap-blocking-api.h"
 #include "coap-log.h"
+#include "sys/node-id.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -85,7 +87,7 @@ Patient node - application logic
  * on_publish_slot() returns the delay until the next slot.
  * Publish every 30 seconds
  */
-#define DEFAULT_PUBLISH_INTERVAL    (1 * CLOCK_SECOND)
+#define DEFAULT_PUBLISH_INTERVAL    (30 * CLOCK_SECOND)
 
 /*
  * Alert Interval
@@ -98,7 +100,9 @@ Patient node - application logic
  * fires when MQTT is idle and ready, so it becomes rarer exactly when
  * the gateway is failing - the detector would starve precisely when it
  * is needed. */
-#define GATEWAY_CHECK_INTERVAL (CLOCK_SECOND * 5)
+#define GATEWAY_CHECK_INTERVAL (5 * CLOCK_SECOND)
+
+#define OBS_STATUS_URI "/er/patient/assistance/status"
 
 
 /*---------------------------------------------------------------------------*/
@@ -195,6 +199,11 @@ static patient_vitals_t current_vitals;
 process_event_t discharge_event;
 
 /*
+ * Event triggered during a assistance request
+ */
+static process_event_t stop_observation_event;
+
+/*
  * Device and patient information
  */
 device_data_t patient_info;
@@ -205,6 +214,7 @@ device_data_t patient_info;
  */
 extern coap_resource_t res_discharge;
 extern coap_resource_t res_triage;
+static coap_observee_t *request_status;
 /*
  * Cloud Application CoAP endpoint
  */
@@ -1475,7 +1485,7 @@ int parse_registration(const char *payload, int payload_len, long *patient_id, t
 }      
 
 void print_patient_info() {
-  printf("Patient ID: %li\t Triage code: %i\n", patient_info.patient_id, patient_info.triage_code);
+  LOG_INFO("Patient ID: %li\t Triage code: %i\n", patient_info.patient_id, patient_info.triage_code);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -1502,14 +1512,14 @@ void client_chunk_handler(coap_message_t *response) {
   }
 
   status = response->code;
-  printf("Response: %u.%02u\n", status / 32, status % 32);
+  LOG_DBG("Response: %u.%02u\n", status / 32, status % 32);
 
   len = coap_get_payload(response, &chunk);
 
   char payload[128];
 
   if(len <= 0 || len >= sizeof(payload)) {
-    printf("Invalid payload\n");
+    LOG_DBG("Invalid payload\n");
     return;
   }
 
@@ -1517,16 +1527,281 @@ void client_chunk_handler(coap_message_t *response) {
   payload[len] = '\0';
 
   if(parse_registration(payload, len, &patient_info.patient_id, &patient_info.triage_code, &nurse_addr) == 0) {
-    printf("Device successfully registered\n");
+    LOG_INFO("Device successfully registered\n");
     print_patient_info();
     flagRegistration = 1;
 
   } else {
-    printf("Patient info parsing error, will retry\n");
+    LOG_INFO("Patient info parsing error, will retry\n");
     etimer_reset(&et);
   }
-       
 }
+
+ void stop_observation(void) {
+
+    if(request_status) {
+      LOG_INFO("Stopping observation\n");
+      request_status = NULL;
+    } 
+  }
+
+
+//  Extract the target patient id and the request status from the observable resource notification
+  int parse_status(const char *payload, int payload_len, long *patient_id, patient_status_t *status) {
+
+    const char *id_key = "\"PATIENT_ID\":";
+    const char *status_key = "\"STATUS\":";
+    const char *start;
+
+    if(payload == NULL || patient_id == NULL || status == NULL) {
+        return -1;
+    }
+
+    start = strstr(payload, id_key);
+    if(start == NULL) {
+        return -1;
+    }
+
+    start += strlen(id_key);
+    *patient_id = atol(start);
+
+    start = strstr(payload, status_key);
+    if(start == NULL) {
+        return -1;
+    }
+
+    start += strlen(status_key);
+    *status = (patient_status_t)atoi(start);
+
+    return 0;
+
+}
+
+
+//  Handle the response to the observe request and the following notifications
+  /*
+    The client observes the /er/patient/assistance/status resource.
+
+    As soon as the status of a request changes (i.e. the nurse aknowledges it), a notification is sent to all the clients observing 
+    this resource (i.e. the clients that have a pending request).
+
+    The notification's payload has the following format:
+    {
+      "PATIENT_ID": <id>,
+      "STATUS":     <status>
+    }
+  */
+  static void notification_callback(coap_observee_t *obs, void *notification, coap_notification_flag_t flag) {
+
+    int len = 0;
+    const uint8_t *payload = NULL;
+
+    LOG_DBG("Notification handler\n");
+
+    if(obs != NULL) {
+        LOG_DBG("Observee URI: %s\n", obs->url);
+    }
+
+    if(notification) {
+      len = coap_get_payload(notification, &payload);
+    }
+
+    long patient_id;
+    patient_status_t status;
+    char payload_buf[64];
+    switch(flag) {
+
+      case OBSERVE_OK: 
+        LOG_INFO("Observation registered\n");
+        break;
+
+      case NOTIFICATION_OK: 
+
+        if(payload == NULL || len <= 0 || len >= sizeof(payload_buf)) {
+            LOG_INFO("Invalid notification payload\n");
+            break;
+        }
+
+        memcpy(payload_buf, payload, len);
+        payload_buf[len] = '\0';
+
+        if(parse_status(payload_buf, len, &patient_id, &status) != 0) {
+            LOG_INFO("Invalid notification payload\n");
+            break;
+        }
+
+        LOG_INFO("Notification: Patient ID = %ld\t Status=0x%02X\n", patient_id, status);
+
+        //  Process the notification only if it refers to this patient
+        if(patient_id == patient_info.patient_id && status == STATUS_IDLE) {
+
+            LOG_INFO("Request acknowledged\n");
+
+            leds_off(LEDS_ALL);
+
+            //  It's better to modify the observer outside of the notification function
+            //stop_observation();
+            process_post(&patient_process, stop_observation_event, NULL);
+        }
+
+        break;
+
+      case OBSERVE_NOT_SUPPORTED:
+        LOG_INFO("Observe not supported\n");
+        request_status = NULL;
+        break;
+
+      case ERROR_RESPONSE_CODE:
+        LOG_INFO("ERROR_RESPONSE_CODE: %*s\n", len, (char *)payload);
+        request_status = NULL;
+        break;
+
+      case NO_REPLY_FROM_SERVER:
+        if(obs != NULL) {
+          LOG_INFO("NO_REPLY_FROM_SERVER: "
+                "removing observe registration with token %x%x\n",
+                obs->token[0], obs->token[1]);
+        }
+        request_status = NULL;
+        break;
+
+    }
+
+  }
+
+//  Start/stop the observation of the remote resource
+  void start_observation(void) {
+
+    if(request_status == NULL) {
+      LOG_INFO("Starting observation\n"); 
+      request_status = coap_obs_request_registration(&nurse_addr, OBS_STATUS_URI, notification_callback, NULL);
+    }
+
+    if(request_status == NULL) {
+      LOG_DBG("ERROR: observation registration failed\n");
+    }
+
+  }
+
+//  Led colors are treated as strings, this funciton converts them to masks. 
+  //  The correct mask is platform dependent, this funciton maps the colors to the Nordic nRF52840 Dongle masks
+  int color_to_led_mask(char *color) {
+
+      if(strcmp(color, "RED") == 0) {
+          return LEDS_RED;
+      }
+      else if(strcmp(color, "GREEN") == 0) {
+          return LEDS_GREEN;
+      }
+      else if(strcmp(color, "BLUE") == 0) {
+          return LEDS_BLUE;
+      }
+      else if(strcmp(color, "YELLOW") == 0) {
+          return LEDS_RED | LEDS_GREEN;
+      }
+      else if(strcmp(color, "MAGENTA") == 0) {
+          return LEDS_RED | LEDS_BLUE;
+      }
+      else if(strcmp(color, "CYAN") == 0) {
+          return LEDS_GREEN | LEDS_BLUE;
+      }
+      else if(strcmp(color, "WHITE") == 0) {
+          return LEDS_RED | LEDS_GREEN | LEDS_BLUE;
+      }
+
+      return 0;
+
+  }
+
+  //  Turn on the led with the specified color
+  void update_leds(char *color) {
+
+    leds_off(LEDS_ALL);
+    leds_on(color_to_led_mask(color));
+
+  }
+
+  //  Extract the color name from the payload received after an assistance request
+  int parse_led_color(const char *payload, int payload_len, char *color, int color_size) {
+    const char *key = "\"LED_COLOR\":\"";
+    const char *start;
+    const char *end;
+    int len;
+
+    if(payload == NULL || color == NULL || color_size <= 0) {
+        return -1;
+    }
+
+    //  Find the LED_COLOR key
+    start = strstr(payload, key);
+
+    if(start == NULL) {
+        return -1;
+    }
+
+    //  Move to the beginning of the value
+    start += strlen(key);
+
+    //  Look for the end of the value
+    end = strchr(start, '"');
+
+    if(end == NULL) {
+        return -1;
+    }
+
+    len = end - start;
+
+    //  Check is buffer size is sufficient
+    if(len >= color_size) {
+        return -1;
+    }
+
+    //  Copy the name color
+    memcpy(color, start, len);
+    color[len] = '\0';
+
+    return 0;
+
+  }
+
+//  This function is will be passed to COAP_BLOCKING_REQUEST() to handle responses for the nurse
+  void nurse_request_callback(coap_message_t *response) {
+
+    const uint8_t *chunk;
+    uint8_t status;
+    int len;
+
+    if(response == NULL) {
+      puts("Request timed out");
+      return;
+    }
+
+    status = response->code;
+    LOG_DBG("Response: %u.%02u\n", status / 32, status % 32);
+
+    len = coap_get_payload(response, &chunk);
+
+    char payload[64];
+    char color[10];
+
+    if(len <= 0 || len >= sizeof(payload)) {
+      LOG_DBG("Invalid payload\n");
+      return;
+    }
+
+    memcpy(payload, chunk, len);
+    payload[len] = '\0';
+
+    if(parse_led_color(payload, len, color, sizeof(color)) == 0) {
+      LOG_DBG("LED color: %s\n", color);
+      update_leds(color);
+      start_observation();
+    } 
+    
+    else 
+      LOG_DBG("LED_COLOR parsing error\n");
+    
+  }
 
 // RESOURCE HANDLING FUNCTIONS END
 /*---------------------------------------------------------------------------*/
@@ -1541,7 +1816,7 @@ PROCESS_THREAD(patient_process, ev, data)
   PROCESS_BEGIN();
   
 
-  printf("Patient node process (DEVICE_ID=%d)\n", DEVICE_ID);
+  LOG_INFO("Patient node process (DEVICE_ID=%d)\n", DEVICE_ID);
   vitals_buffer_init();
   triage_report_init();
 
@@ -1564,7 +1839,7 @@ PROCESS_THREAD(patient_process, ev, data)
         
     if(etimer_expired(&et)) {
 
-      printf("--Timer expired--\n");
+      LOG_INFO("--Timer expired--\n");
 
       /* prepare request, TID is set by COAP_BLOCKING_REQUEST() */
       coap_init_message(request, COAP_TYPE_CON, COAP_GET, 0);
@@ -1575,10 +1850,12 @@ PROCESS_THREAD(patient_process, ev, data)
 
       COAP_BLOCKING_REQUEST(&server_addr, request, client_chunk_handler);
 
-      printf("\n--Registration request sent--\n");
+      LOG_INFO("\n--Registration request sent--\n");
     }
   }
-  //  This event is needed by the discharge resource to interrupt all MQTT and COAP communication
+  // This event is needed to stopp observing the nurse
+  stop_observation_event = process_alloc_event(); 
+  // This event is needed by the discharge resource to interrupt all MQTT and COAP communication
   discharge_event = process_alloc_event();
 
   /* Build our identifiers. A failure here is fatal: identifiers are
@@ -1657,7 +1934,12 @@ PROCESS_THREAD(patient_process, ev, data)
         PROCESS_EXIT();
 
     }
-    
+
+    if(ev == stop_observation_event) {
+        stop_observation();
+        continue;
+    }
+
     /* Timers/polls belonging to the MQTT service */
     if(mqtt_service_handle_event(ev, data)) {
       continue;
@@ -1667,7 +1949,7 @@ PROCESS_THREAD(patient_process, ev, data)
        ((button_hal_button_t *)data)->unique_id == BUTTON_HAL_ID_BUTTON_ZERO) {
       
         //When press the button, ask for help to a nurse<
-        printf("--Button pressed--\n");
+        LOG_INFO("--Button pressed--\n");
 
         /* prepare request, TID is set by COAP_BLOCKING_REQUEST() */
         coap_init_message(request_for_nurse, COAP_TYPE_CON, COAP_POST, 0);
@@ -1683,9 +1965,9 @@ PROCESS_THREAD(patient_process, ev, data)
         LOG_INFO_COAP_EP(&nurse_addr);
         LOG_INFO_("\n");
 
-        COAP_BLOCKING_REQUEST(&nurse_addr, request_for_nurse, client_chunk_handler);
+        COAP_BLOCKING_REQUEST(&nurse_addr, request_for_nurse, nurse_request_callback);
 
-        printf("\n--Request sent--\n");
+        LOG_INFO("\n--Request sent--\n");
 
     }
 

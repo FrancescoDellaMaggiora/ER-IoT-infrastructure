@@ -68,6 +68,7 @@
  * uip_ds6_defrt_choose() finally returns NULL. */
 #define RPL_CONF_DELAY_BEFORE_LEAVING (90 * CLOCK_SECOND)
 
+#define COAP_OBSERVE_CLIENT 1
 
 #define REST_MAX_CHUNK_SIZE 256
 /*---------------------------------------------------------------------------*/

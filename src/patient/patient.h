@@ -163,6 +163,15 @@ typedef struct {
 
 } patient_vitals_t;
 
+
+//  When a request is sent its state becomes "STATUS_PENDING". As soon as the nurse aknowledges it, its status gets back to "STATUS_IDLE".
+//  The client observes a resource to get notified about this and turn off its led
+typedef enum {
+    STATUS_IDLE         = 0x01,
+    STATUS_PENDING      = 0x02
+} patient_status_t;
+
+
 /*
  * Data structure for memorize the Simulation Parameters 
  */
