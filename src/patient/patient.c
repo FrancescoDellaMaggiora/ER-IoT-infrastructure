@@ -283,7 +283,8 @@ static uint8_t candidate_streak = 0;
  * the channel, leaving slowly avoids flapping back into congestion on a
  * single lucky success.
  *
- * Another way to find out a congestion is when a alert message is too slow.
+ * Another way to find out a congestion is when a alert message is too slow
+ * for a sequence of times.
  */
 #define CONGESTION_ENTER_THRESHOLD  3
 #define CONGESTION_EXIT_THRESHOLD   5
@@ -291,6 +292,7 @@ static uint8_t candidate_streak = 0;
 
 static uint8_t consecutive_failures = 0;
 static uint8_t consecutive_successes = 0;
+static uint8_t consecutive_latency = 0;
 static bool network_congested = false;
 
 static void congestion_update(bool publish_ok)
@@ -312,13 +314,22 @@ static void congestion_update(bool publish_ok)
       if(consecutive_failures >= CONGESTION_ENTER_THRESHOLD) {
         network_congested = true;
         consecutive_failures = 0;
-        LOG_INFO("Congestion detected: throttling low-priority vitals\n");
+        LOG_INFO("Congestion detected for too much failure: throttling low-priority vitals\n");
       }
     }
   }
 
-  if (last_RTT >= CONGESTION_MAX_LATENCY * CLOCK_SECOND )
-    network_congested = true;
+  
+  if (last_RTT >= CONGESTION_MAX_LATENCY * CLOCK_SECOND ) {
+    consecutive_latency++;
+    last_RTT = 0;
+    if (consecutive_latency >= CONGESTION_ENTER_THRESHOLD) {
+      network_congested = true;
+      LOG_INFO("Congestion detected for latency: throttling low-priority vitals\n");
+    }
+  } else {
+    consecutive_latency = 0;
+  }
 }
 /*
  * Under congestion, low-priority patients stop sending ROUTINE vitals:
