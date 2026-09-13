@@ -6,7 +6,7 @@ public class WaitingPatient {
     private final int patientId;
     private final String deviceId;
     private final String triageCode;
-    private final LocalDateTime lastCheckTime;   // last_visit_time, o arrival_time se mai visitato
+    private final LocalDateTime lastCheckTime;   // last_visit_time, o arrival_time if never visited
 
     public WaitingPatient(int patientId, String deviceId, String triageCode, LocalDateTime lastCheckTime) {
         this.patientId = patientId;

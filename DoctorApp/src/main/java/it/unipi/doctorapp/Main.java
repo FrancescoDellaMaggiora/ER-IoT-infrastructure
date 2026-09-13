@@ -17,10 +17,10 @@ import java.util.Scanner;
  * DoctorApp - command-line interface for the ER doctor.
  *
  * Talks to the Cloud Application's four doctor endpoints:
- *   POST /er/doctor/register       -register a newly triaged patient
- *   POST /er/doctor/next-patient   -call the next patient due a revisit
- *   POST /er/doctor/update-triage  -change a patient's triage code
- *   POST /er/doctor/discharge      -discharge a patient
+ *   POST /er/doctor/register       -registers a newly triaged patient
+ *   POST /er/doctor/next-patient   -calls the next patient for a revisit
+ *   POST /er/doctor/update-triage  -changes a patient's triage code
+ *   POST /er/doctor/discharge      -discharges a patient
  *
  * After a successful "next patient", the Grafana dashboard for that
  * patient is opened in the browser.
@@ -107,7 +107,7 @@ public class Main {
         }
 
         // last_visit_time stays null: a patient being registered has
-        // just been triaged, they have no previous visit yet.
+        // just been triaged, they have no previous visits yet.
         request.lastVisitTime = null;
         request.deptId = config.getDeptId();
 

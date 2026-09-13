@@ -16,11 +16,11 @@ public class DeviceConfig {
                 mapper.getTypeFactory().constructCollectionType(List.class, DeviceEntry.class));
     }
 
-    /** @return l'indirizzo CoAP del device, o null se sconosciuto */
+    /** @return device's CoAP address, null if uknown */
     /**
-     *  Get the IPv6 address of the device  deviceId
-     * @param deviceId Device's id of witch are we looking for
-     * @return The IPv6, if exits, otherwise null
+     *  Get the IPv6 address of device "deviceId"
+     * @param deviceId 
+     * @return The IPv6 if it exits, null otherwise
      */
     public String getCoapAddress(String deviceId) {
         return devices.stream()

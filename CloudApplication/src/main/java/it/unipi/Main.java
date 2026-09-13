@@ -109,7 +109,7 @@ public class Main {
             return;
         }
 
-        //Adding the call to shut down the system
+        //  Adding the call to shut down the system
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("Shutting down...");
             storageThread.shutdown();
