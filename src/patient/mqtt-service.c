@@ -254,7 +254,11 @@ mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
   }
   case MQTT_EVENT_PUBACK: {
     last_RTT = clock_time() - start_RTT;
-    LOG_INFO("Publishing complete, sequence_number = %u, RTT = %li, CLOCK_SECONDS = %i.\n",seq_nr_alert, last_RTT, CLOCK_SECOND);
+    #if CONTIKI_TARGET_COOJA
+      LOG_INFO("Publishing complete, sequence_number = %i, RTT = %li, CLOCK_SECONDS = %li.\n",seq_nr_alert, last_RTT, CLOCK_SECOND);
+    #else
+      LOG_INFO("Publishing complete, sequence_number = %u, RTT = %li, CLOCK_SECONDS = %i.\n",seq_nr_alert, last_RTT, CLOCK_SECOND);
+    #endif //CONTIKI_TARGET_COOJA
     break;
   }
   default:
