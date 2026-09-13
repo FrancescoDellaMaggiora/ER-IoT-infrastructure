@@ -1,3 +1,7 @@
 [
-  { "nurseId": "n0-1", "deptId": 0, "coapAddress": "coap://[fd00:1::202:2:2:2]" }
+  { "nurseId": "n0-1",  "deptId": 0, "coapAddress": "coap://[fd80:1::203:3:3:3]" },
+  { "nurseId": "n1-1",  "deptId": 1, "coapAddress": "coap://[fd80:2::204:4:4:4]" },
+
+  { "nurseId": "n0-10", "deptId": 0, "coapAddress": "coap://[fd00:1::f6ce:366b:5e21:bc08]" },
+  { "nurseId": "n1-10", "deptId": 1, "coapAddress": "coap://[fd00:2::f6ce:363f:7b10:11c1]" }
 ]

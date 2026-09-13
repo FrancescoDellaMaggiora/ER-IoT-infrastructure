@@ -4,7 +4,8 @@ use ER_IOT;
 
 CREATE TABLE IF NOT EXISTS patients (
     patient_id      INT AUTO_INCREMENT PRIMARY KEY,
-    ssn             VARCHAR(16)  NOT NULL UNIQUE,
+    dept_id         TINYINT NOT NULL DEFAULT 0,
+    ssn             VARCHAR(16)  NOT NULL UNIQUE,   
     name            VARCHAR(50)  NOT NULL,
     surname         VARCHAR(50)  NOT NULL,
     arrival_time    DATETIME     NOT NULL,

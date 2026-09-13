@@ -1,6 +1,13 @@
 [
-  { "deviceId": "1", "coapAddress": "coap://[fd00:1::202:2:2:2]" },
-  { "deviceId": "2", "coapAddress": "coap://[fd00:1::203:3:3:3]" },
-  { "deviceId": "3", "coapAddress": "coap://[fd00:1::204:4:4:4]" },
-  { "deviceId": "9", "coapAddress": "coap://[fd00:1::202:2:2:2]" }
+  { "deviceId": "1", "coapAddress": "coap://[fd00:1::205:5:5:5]" },
+  { "deviceId": "2", "coapAddress": "coap://[fd00:1::206:6:6:6]" },
+  { "deviceId": "3", "coapAddress": "coap://[fd00:2::207:7:7:7]" },
+  { "deviceId": "4", "coapAddress": "coap://[fd00:2::208:8:8:8]" },
+
+  { "deviceId": "10", "coapAddress": "coap://[fd00:1::f6ce:369b:56a4:39a6]" },
+  { "deviceId": "11", "coapAddress": "coap://[fd00:1::f6ce:36ab:3ca8:d6dd]" }, 
+  { "deviceId": "12", "coapAddress": "coap://[fd00:1::f6ce:3664:b7a7:3379]" },
+  { "deviceId": "14", "coapAddress": "coap://[fd00:1::f6ce:3639:6320:445f]" },
+  { "deviceId": "15", "coapAddress": "coap://[fd00:1::f6ce:3643:1c3:5dcd]" },
+  { "deviceId": "16", "coapAddress": "coap://[fd00:1::f6ce:363f:7be6:11c1]" }
 ]
