@@ -140,14 +140,17 @@ public class MQTTThread extends Thread implements MqttCallback {
         }
     }
 
-    @Override
+    @Override   
     public void connectionLost(Throwable throwable) {
-        // TODO: implement
+        System.err.println("[MQTT] Connection lost to " + broker
+                + " (clientId=" + clientId + "): "
+                + (throwable != null ? throwable.getMessage() : "unknown cause")
+                + " - automatic reconnect enabled, waiting for reconnection...");
     }
 
     @Override
     public void deliveryComplete(IMqttDeliveryToken iMqttDeliveryToken) {
-        // TODO: implement
+        System.err.println("[MQTT] Delivery complete from clientd " + clientId);
     }
 
     /**
