@@ -9,9 +9,8 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Selects the next patient to be seen in a ward: the one whose
- * time elapsed since their last check-up most exceeds the
- * revisit target of their triage code.
+ * Selects the next patient to be visited in a ward: the one whose elapsed time since 
+ * their last visit exceeds their triage code expected waiting time the most is picked.
  */
 public class NextPatientSelector {
 
@@ -22,10 +21,10 @@ public class NextPatientSelector {
     }
 
     /**
-     * Method to select, if exists, the next patient to visit
+     * Method to select the next patient to visit (if present)
      * @param deptId Department to check
-     * @return An Optional tha can contain the data (in WaitingPatient) if exists
-     * @throws SQLException throws whenever there's a problem
+     * @return An Optional tha can contain the data (in WaitingPatient) if it exists
+     * @throws SQLException thrown whenever there's a problem
      */
     public Optional<WaitingPatient> selectNext(int deptId) throws SQLException {
         List<WaitingPatient> candidates = patientRepository.findActivePatientsInDept(deptId);

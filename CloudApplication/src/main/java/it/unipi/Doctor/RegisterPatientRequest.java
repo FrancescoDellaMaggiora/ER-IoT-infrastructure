@@ -18,10 +18,10 @@ public class RegisterPatientRequest {
     private String triageCode;
 
     @JsonProperty("arrival_time")
-    private String arrivalTime;      // ISO-8601, parsato a parte
+    private String arrivalTime;      // ISO-8601, parsed separately
 
     @JsonProperty("last_visit_time")
-    private String lastVisitTime;    // opzionale: può essere null
+    private String lastVisitTime;    // Optional: can be null
 
     @JsonProperty("id_device")
     private String deviceId;

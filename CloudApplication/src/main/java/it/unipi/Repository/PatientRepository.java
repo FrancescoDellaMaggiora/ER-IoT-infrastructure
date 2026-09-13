@@ -176,7 +176,7 @@ public class PatientRepository {
 
     /**
      * Update to 'when' the last_visit_time of the patient 'patient_id'
-     * @param patientId Patient's ID that want to update
+     * @param patientId Patient's ID that gets updated
      * @param when Timestamp of the visit
      * @throws SQLException  whenever something goes wrong
      */

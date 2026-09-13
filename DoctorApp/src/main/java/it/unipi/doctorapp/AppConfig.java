@@ -10,7 +10,7 @@ import java.util.Properties;
  *
  * Kept outside the jar (config/doctorapp.properties)
  * so the Cloud address, department and Grafana URL can be changed
- * without recompiling .
+ * without recompiling.
  */
 public class AppConfig {
 

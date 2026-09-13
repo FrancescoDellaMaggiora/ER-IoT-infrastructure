@@ -100,7 +100,7 @@ public class StorageThread extends Thread {
     /**
      * Converts a Vitals reading into an InfluxDB Point.
      *
-     * patientId is a TAG (indexed, used to filter/group in queries -
+     * patientId is a TAG (indexed, used to filter/group in queries, e.g.
      * "show me patient 3's readings"), the individual vitals are
      * FIELDS (the actual measured values). Fields that are null
      * (sensor not attached on that patient) are simply not added,

@@ -10,7 +10,7 @@ import java.io.File;
 import java.io.IOException;
 
 /**
- * Notifies the patient's device: "you have been called for your visit".
+ * Notifies the patient's device it's been called for a doctor visit".
  *
  * CHECK: resource and method.
  * Using PUT on /er/patient/called, empty body.

@@ -16,7 +16,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 
 /**
- * Sends the patient/nurse association (message toward the nurse device,
+ * Sends the patient/nurse association (message towards the nurse device,
  * resource /er/patient/association) via CoAP.
  */
 public class PatientAssociationClient {
@@ -31,7 +31,6 @@ public class PatientAssociationClient {
         Configuration.setStandard(config);
     }
 
-    // TODO: Check
     private static int triageCodeToNumber(String triageCode) {
         switch (triageCode) {
             case "red":    return 0;

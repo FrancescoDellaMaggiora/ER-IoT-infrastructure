@@ -34,7 +34,7 @@ public class NurseAssignmentStore {
      *
      * Without 'synchronized' here, two concurrent registrations could
      * both read "nurse X has the fewest patients" before either has
-     * recorded theirs, and both pick the same nurse - defeating the
+     * recorded theirs, and both pick the same nurse defeating the
      * whole point of load balancing. The lock is on the whole store
      * (not just per-nurse) because the decision itself depends on
      * comparing ALL candidates together.

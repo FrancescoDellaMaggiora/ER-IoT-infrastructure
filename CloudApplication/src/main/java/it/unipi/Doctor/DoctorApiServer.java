@@ -118,9 +118,6 @@ public class DoctorApiServer {
                     deptId, req.getName(), req.getSurname(), req.getSsn(),
                     req.getTriageCode(), arrivalTime, lastVisitTime, req.getDeviceId());
         } catch (SQLException e) {
-            // TODO: distinguish "SSN already exists" / "device already
-            // assigned" (constraint violations -> 409 Conflict) from
-            // genuine DB failures (-> 500). For now, everything is 500.
             ctx.status(500).json(new ErrorResponse("Database error: " + e.getMessage()));
             return;
         }
@@ -144,8 +141,6 @@ public class DoctorApiServer {
         } catch (IOException | ConnectorException e) {
             System.err.println("Warning: nurse " + nurse.getNurseId()
                     + " was not notified: " + e.getMessage());
-            // TODO: decidere se questo deve far fallire la registrazione
-            // (409/500) o essere solo un warning - per ora, warning.
         }
 
         ctx.status(201).json(new RegisterPatientResponse(patientId, nurse.getNurseId()));

@@ -12,7 +12,7 @@ import org.eclipse.californium.elements.config.Configuration;
 import java.io.File;
 
 /**
- * CoAP Server: memorize the resources to the device.
+ * CoAP Server: Register devices coap resources.
  * Resources:
  *   er/patient/registration/{DEVICE_ID}  (GET)  -> RegisterDeviceResource
  *   er/patient/triage-report             (PUT)  -> TriageReportResource

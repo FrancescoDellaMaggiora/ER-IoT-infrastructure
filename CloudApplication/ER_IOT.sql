@@ -49,7 +49,7 @@ BEGIN
     END IF;
 END$$
 
--- Trigers for the table triage_history. This one memorize the first status
+-- Triggers for the table triage_history. This one memorize the first status
 CREATE TRIGGER trg_triage_history_insert
 AFTER INSERT ON patients
 FOR EACH ROW
@@ -58,7 +58,7 @@ BEGIN
     VALUES (NEW.patient_id, NEW.triage_code, NOW());
 END$$
 
--- This memorize every time that the triage code change.
+-- This memorizes all the times the triage code changes.
 CREATE TRIGGER trg_triage_history_update
 AFTER UPDATE ON patients
 FOR EACH ROW

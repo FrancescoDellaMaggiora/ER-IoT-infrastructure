@@ -33,7 +33,7 @@ public class MQTTThread extends Thread implements MqttCallback {
      *
      * @return String The searched value
      *
-     * @throws IOException if the properties doesn't contain the key
+     * @throws IOException if the properties don't contain the key
      */
     private static String requireProperty(Properties props, String key) throws IOException {
         String value = props.getProperty(key);
